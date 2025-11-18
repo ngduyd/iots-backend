@@ -4,3 +4,5 @@
 # allow only these
 !requirements.txt
 !*.py
+!proto/
+!proto/**

@@ -1,6 +1,7 @@
 #File manager state sensor
 import time
 from db import update_sensor_status, get_all_sensor_status
+import asyncio
 
 sensor_status = {}
 
@@ -18,14 +19,14 @@ def init():
     try:
         sensor_status = get_all_sensor_status()
         now = time.time()
-        for sensor,status in sensor_status.items():
+        for sensor, status in sensor_status.items():
             if status == "online":
                 sensor_last_seen[sensor] = now
 
     except Exception as e:
         print(f"Error in init: {e}")
 
-def record_sensor_activity(sensor_name):
+def record_sensor_activity(sensor_name, loop=None):
     """
     Records the activity of a sensor and updates its status to 'online'.
 
@@ -40,17 +41,14 @@ def record_sensor_activity(sensor_name):
     global sensor_status, sensor_last_seen
 
     sensor_last_seen[sensor_name] = time.time()
-
     current_db_status = sensor_status.get(sensor_name)
 
     if current_db_status != 'online':
-        try:
-            update_sensor_status(sensor_name, 'online')
-            sensor_status[sensor_name] = 'online'
-        except Exception as e:
-            print(f"Error in record_sensor_activity: {e}")
+        if loop:
+            asyncio.run_coroutine_threadsafe(update_sensor_status(sensor_name, 'online'), loop)
+        sensor_status[sensor_name] = 'online'
 
-def check_offline_sensors(timeout_seconds=120):
+def check_offline_sensors(timeout_seconds=120, loop=None):
     """
     Checks for offline sensors and updates their status.
 
@@ -71,15 +69,11 @@ def check_offline_sensors(timeout_seconds=120):
         last_seen_time = sensor_last_seen[sensor]
 
         if now - last_seen_time > timeout_seconds:
-
             current_state = sensor_status.get(sensor)
             if current_state == 'online':
-                try:
-                    update_sensor_status(sensor, 'offline')
-                    sensor_status[sensor] = 'offline'
-                except Exception as e:
-                    print(f"Error in check_offline_sensors: {e}")
+                if loop:
+                    asyncio.run_coroutine_threadsafe(update_sensor_status(sensor, 'offline'), loop)
+                sensor_status[sensor] = 'offline'
 
             if sensor in sensor_last_seen:
                 del sensor_last_seen[sensor]
-            

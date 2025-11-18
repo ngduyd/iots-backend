@@ -13,6 +13,7 @@ services:
       - DB_NAME=${DB_NAME:-mydb}
       - DB_USER=${DB_USER:-user}
       - DB_PASSWORD=${DB_PASSWORD:-password}
+      - device_api_key=${device_api_key:-your_device_api_key}
     depends_on:
       - mqtt
       - database
@@ -38,6 +39,45 @@ services:
       - "5433:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    
+  syncdata:
+    container_name: syncdata
+    image: docker.io/ngduyd/syncdata-client:latest
+    environment:
+      - DB_HOST=${DB_HOST:-database}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-mydb}
+      - DB_USER=${DB_USER:-user}
+      - DB_PASSWORD=${DB_PASSWORD:-password}
+      - device_api_key=${device_api_key:-your_device_api_key}
+      - RECIVER_HOST=${RECIVER_HOST:-syncdata.example.com}
+      - RECIVER_PORT=${RECIVER_PORT:-443}
+    depends_on:
+      - database
+    # ports:
+    #   - "6000:6000"
+
+  ui:
+    container_name: ui
+    image: docker.io/ngduyd/ui-iot:latest
+    volumes:
+      - ./config.json:/app/config.json
+    environment:
+      - MQTT_BROKER=${MQTT_BROKER:-mqtt}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+      - MQTT_TOPIC=${MQTT_TOPIC:-sensors/data}
+      - MQTT_USERNAME=${MQTT_USERNAME:-user}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-password}
+      - DB_HOST=${DB_HOST:-database}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-mydb}
+      - DB_USER=${DB_USER:-user}
+      - DB_PASSWORD=${DB_PASSWORD:-password}
+      - GRPC_SERVER_ADDR=${GRPC_SERVER_ADDR:-192.168.1.10:9090}
+    depends_on:
+      - mqtt-service
+    ports:
+      - "3000:8080"
 
 volumes:
-  db_data: 
+  db_data:

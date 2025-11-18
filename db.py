@@ -2,16 +2,15 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import config
 import json
+import sender_service
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
-def get_db_connection():
-    """
-    Establishes and returns a connection to the PostgreSQL database.
+sender = sender_service.DataSyncService()
+executor = ThreadPoolExecutor(max_workers=5)
 
-    Uses the connection parameters defined in the 'config' module.
-
-    Returns:
-        psycopg2.connection: A connection object to the database, or None if the connection fails.
-    """
+def _get_db_connection():
+    """Synchronous helper for database connections."""
     try:
         connection = psycopg2.connect(
             host=config.DB_HOST,
@@ -24,17 +23,25 @@ def get_db_connection():
     except Exception as e:
         print(f"Error connecting to the database: {e}")
         return None
-    
-def init_db():
-    """
-    Initializes the database by creating the necessary tables.
 
-    This function creates the 'sensors' and 'values' tables if they do not already exist,
-    along with their respective indexes.
-    """
-    connection = get_db_connection()
+async def get_db_connection():
+    """Asynchronous database connection wrapper."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(executor, _get_db_connection)
+
+async def init_db():
+    """Initializes the database asynchronously."""
+    connection = await get_db_connection()
     if connection is None:
         return
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(executor, _init_db_sync, connection)
+    finally:
+        connection.close()
+
+def _init_db_sync(connection):
+    """Synchronous database initialization."""
     try:
         with connection.cursor() as cursor:
             cursor.execute("""
@@ -42,7 +49,7 @@ def init_db():
                     sensor_id SERIAL PRIMARY KEY,
                     name VARCHAR(50) UNIQUE,
                     vbat DOUBLE PRECISION,
-                    status VARCHAR(20),
+                    status VARCHAR(100),
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
@@ -65,74 +72,99 @@ def init_db():
             connection.commit()
     except Exception as e:
         print(f"Error initializing the database: {e}")
-    finally:
-        connection.close()
 
-def save_message(topic, payload):
-    """
-    Saves a message from a sensor to the database.
-
-    This function checks if the sensor with the given topic name exists in the 'sensors' table.
-    If not, it creates a new sensor entry. It then parses the JSON payload and inserts the
-    sensor data into the 'values' table. If the payload contains a 'vbat' key, it updates
-    the battery voltage for the sensor in the 'sensors' table.
-
-    Args:
-        topic (str): The MQTT topic, which is used as the sensor name.
-        payload (str): The JSON-formatted string containing sensor data.
-    """
-    connection = get_db_connection()
+async def save_message(topic, payload):
+    """Saves a message from a sensor to the database asynchronously."""
+    connection = await get_db_connection()
     if connection is None:
         return
+
     try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT sensor_id FROM sensors WHERE name = %s;", (topic,))
-            result = cursor.fetchone()
-
-            if result is None:
-                cursor.execute(
-                    "INSERT INTO sensors (name, status) VALUES (%s, %s) RETURNING sensor_id;",
-                    (topic, 'offline')
-                )
-                sensor_id = cursor.fetchone()[0]
-            else:
-                sensor_id = result[0]
-
-            try:
-                data = json.loads(payload)
-                
-                if 'vbat' in data:
-                    vbat_value = data.pop('vbat')
-                    cursor.execute(
-                            "UPDATE sensors SET vbat = %s, updated_at = NOW() WHERE sensor_id = %s;",
-                            (float(vbat_value), sensor_id)
-                        )
-                
-                for sensor_type, sensor_value in data.items():
-                    cursor.execute(
-                        "INSERT INTO values (sensor_id, type, value) VALUES (%s, %s, %s);",
-                        (sensor_id, sensor_type, float(sensor_value))
-                    )
-            except Exception as e:
-                print(f"Error parsing payload: {e}")
-                return
-            connection.commit()
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(executor, _save_message_sync, connection, topic, payload)
     except Exception as e:
         print(f"Error saving message to the database: {e}")
     finally:
         connection.close()
 
-def update_sensor_status(sensor_name, status):
-    """
-    Updates the status of a sensor in the database.
+def _save_message_sync(connection, topic, payload):
+    """Synchronous message saving with blocking gRPC calls."""
+    try:
+        with connection.cursor() as cursor:
+            try:
+                data = json.loads(payload)
+            except Exception as e:
+                print(f"Error parsing payload: {e}")
+                return
+            
+            vbat_value = None
+            if 'vbat' in data:
+                vbat_value = data.pop('vbat')
+            
+            cursor.execute("SELECT sensor_id FROM sensors WHERE name = %s;", (topic,))
+            existing = cursor.fetchone()
+            is_new_sensor = existing is None
+            
+            cursor.execute(
+                "INSERT INTO sensors (name, vbat, status) VALUES (%s, %s, %s) "
+                "ON CONFLICT (name) DO UPDATE SET "
+                "vbat = COALESCE(EXCLUDED.vbat, sensors.vbat), "
+                "status = 'online' "
+                "RETURNING sensor_id;",
+                (topic, float(vbat_value) if vbat_value else None, 'online')
+            )
+            row = cursor.fetchone()
+            if row is None:
+                print(f"Failed to get sensor_id for {topic}")
+                return
+            
+            sensor_id = row[0]
 
-    Args:
-        sensor_name (str): The name of the sensor to update.
-        status (str): The new status for the sensor.
-    """
-    connection = get_db_connection()
+            if is_new_sensor:
+                try:
+                    sender.UploadSensor(name=topic, vbat=float(vbat_value) if vbat_value else 0.0, status='online')
+                except Exception as e:
+                    print(f"Error uploading sensor {topic}: {e}")
+
+            for sensor_type, sensor_value in data.items():
+                try:
+                    float_value = float(sensor_value)
+                except (ValueError, TypeError):
+                    print(f"Skipping invalid value for {sensor_type}: {sensor_value}")
+                    continue
+                
+                cursor.execute(
+                    "INSERT INTO values (sensor_id, type, value) VALUES (%s, %s, %s) RETURNING created_at;",
+                    (sensor_id, sensor_type, float_value)
+                )
+                result = cursor.fetchone()
+                created_at = result[0] if result else None
+                
+                try:
+                    sender.UploadSingleRow(sensor_id, sensor_type, float_value, created_at)
+                except Exception as e:
+                    print(f"Error uploading data row for sensor {topic}: {e}")
+            
+            connection.commit()
+    except Exception as e:
+        print(f"Error in _save_message_sync: {e}")
+        connection.rollback()
+
+async def update_sensor_status(sensor_name, status):
+    """Updates sensor status asynchronously."""
+    connection = await get_db_connection()
     if connection is None:
         return
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(executor, _update_sensor_status_sync, connection, sensor_name, status)
+    except Exception as e:
+        print(f"Error updating sensor status: {e}")
+    finally:
+        connection.close()
+
+def _update_sensor_status_sync(connection, sensor_name, status):
+    """Synchronous sensor status update."""
     try:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -141,24 +173,26 @@ def update_sensor_status(sensor_name, status):
             )
             connection.commit()
     except Exception as e:
-        print(f"Error updating sensor status: {e}")
-    finally:
-        connection.close()
+        print(f"Error in _update_sensor_status_sync: {e}")
 
-def get_all_sensor_status()-> dict:
-    """
-    Retrieves the status of all sensors from the database.
-
-    Returns:
-        dict: A dictionary where keys are sensor names and values are their statuses.
-              Returns an empty dictionary if the database connection fails or if there are no sensors.
-    """
-    connection = get_db_connection()
+async def get_all_sensor_status() -> dict:
+    """Retrieves all sensor statuses asynchronously."""
+    connection = await get_db_connection()
     if connection is None:
         return {}
     
-    status = {}
+    try:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(executor, _get_all_sensor_status_sync, connection)
+    except Exception as e:
+        print(f"Error getting sensor status: {e}")
+        return {}
+    finally:
+        connection.close()
 
+def _get_all_sensor_status_sync(connection):
+    """Synchronous sensor status retrieval."""
+    status = {}
     try:
         with connection.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute("SELECT name, status FROM sensors;")
@@ -166,7 +200,5 @@ def get_all_sensor_status()-> dict:
             for row in result:
                 status[row['name']] = row['status']
     except Exception as e:
-        print(f"Error getting sensor status: {e}")
-    finally:
-        connection.close()
+        print(f"Error in _get_all_sensor_status_sync: {e}")
     return status
