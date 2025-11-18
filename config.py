@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# load_dotenv()
 
 # MQTT Broker configuration
 MQTT_BROKER = os.environ.get("MQTT_BROKER")
