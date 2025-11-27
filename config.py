@@ -8,7 +8,7 @@ MQTT_BROKER = os.environ.get("MQTT_BROKER")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", 1883))
 MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
 MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
-MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "sensors/temperature")
+MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "#")
 
 # Database configuration
 DB_HOST = os.environ.get("DB_HOST", "localhost")

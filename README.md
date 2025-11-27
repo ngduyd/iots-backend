@@ -22,7 +22,7 @@ This Python application acts as a bridge between an MQTT broker and a PostgreSQL
 ### Environment Variables
 | Variable | Description | Default (docker-compose) |
 | --- | --- | --- |
-| `MQTT_BROKER` | MQTT broker host or IP | `localhost`
+| `MQTT_BROKER` | MQTT broker host or IP | `mqtt`
 | `MQTT_PORT` | MQTT port | `1883`
 | `MQTT_TOPIC` | Topic to subscribe to | `sensors/data`
 | `MQTT_USERNAME` | MQTT username (if required) | `user`

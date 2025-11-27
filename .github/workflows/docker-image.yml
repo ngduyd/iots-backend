@@ -2,9 +2,9 @@ name: Docker Image CI
 
 on:
   push:
-    branches: [ "latest" ]
+    branches: [ "main", "staging" ]
   pull_request:
-    branches: [ "latest" ]
+    branches: [ "main", "staging" ]
 
 env:
   IMAGE_NAME: mqtt-service
@@ -18,6 +18,8 @@ jobs:
         # Checkout source code
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for all tags
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -32,14 +34,67 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
+        # Determine environment and version
+      - name: Determine environment and version
+        id: vars
+        run: |
+          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            ENVIRONMENT="production"
+          elif [ "${{ github.ref }}" == "refs/heads/staging" ]; then
+            ENVIRONMENT="staging"
+          else
+            ENVIRONMENT="dev"
+          fi
+          
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+          
+          # Get the latest tag for this environment
+          LATEST_TAG=$(git tag -l "${ENVIRONMENT}-v*" | sort -V | tail -n1)
+          
+          if [ -z "$LATEST_TAG" ]; then
+            # No previous tag, start with v1.0.0
+            NEW_VERSION="v1.0.0"
+          else
+            # Extract version and increment patch
+            VERSION=$(echo $LATEST_TAG | sed "s/${ENVIRONMENT}-v//")
+            IFS='.' read -r -a VERSION_PARTS <<< "$VERSION"
+            MAJOR="${VERSION_PARTS[0]}"
+            MINOR="${VERSION_PARTS[1]}"
+            PATCH="${VERSION_PARTS[2]}"
+            
+            # Increment patch version
+            PATCH=$((PATCH + 1))
+            NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "tag=${ENVIRONMENT}-${NEW_VERSION}" >> $GITHUB_OUTPUT
+          
+          echo "Environment: $ENVIRONMENT"
+          echo "New Version: $NEW_VERSION"
+          echo "Full Tag: ${ENVIRONMENT}-${NEW_VERSION}"
+
         # Build và push image
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+          tags: |
+            ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.environment }}-${{ steps.vars.outputs.version }}
+            ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.environment }}-latest
           platforms: linux/amd64,linux/arm64
+
+        # Create and push git tag
+      - name: Create and push tag
+        if: github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.vars.outputs.tag }}" -m "Release ${{ steps.vars.outputs.tag }}"
+          git push origin "${{ steps.vars.outputs.tag }}"
           
       - name: Verify pushed image
-        run: docker buildx imagetools inspect ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+        run: |
+          docker buildx imagetools inspect ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.environment }}-${{ steps.vars.outputs.version }}
+          docker buildx imagetools inspect ${{ secrets.DOCKER_HUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.environment }}-latest

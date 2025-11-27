@@ -3,7 +3,7 @@ services:
     container_name: mqtt-service
     image: docker.io/ngduyd/mqtt-service:latest
     environment:
-      - MQTT_BROKER=${MQTT_BROKER:-localhost}
+      - MQTT_BROKER=${MQTT_BROKER:-mqtt}
       - MQTT_PORT=${MQTT_PORT:-1883}
       - MQTT_TOPIC=${MQTT_TOPIC:-sensors/data}
       - MQTT_USERNAME=${MQTT_USERNAME:-user}
