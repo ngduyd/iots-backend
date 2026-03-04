@@ -2,11 +2,11 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import config
 import json
-import sender_service
+# import sender_service
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
-sender = sender_service.DataSyncService()
+# sender = sender_service.DataSyncService()
 executor = ThreadPoolExecutor(max_workers=5)
 
 def _get_db_connection():
@@ -120,11 +120,11 @@ def _save_message_sync(connection, topic, payload):
             
             sensor_id = row[0]
 
-            if is_new_sensor:
-                try:
-                    sender.UploadSensor(name=topic, vbat=float(vbat_value) if vbat_value else 0.0, status='online')
-                except Exception as e:
-                    print(f"Error uploading sensor {topic}: {e}")
+            # if is_new_sensor:
+            #     try:
+            #         sender.UploadSensor(name=topic, vbat=float(vbat_value) if vbat_value else 0.0, status='online')
+            #     except Exception as e:
+            #         print(f"Error uploading sensor {topic}: {e}")
 
             for sensor_type, sensor_value in data.items():
                 try:
@@ -140,10 +140,10 @@ def _save_message_sync(connection, topic, payload):
                 result = cursor.fetchone()
                 created_at = result[0] if result else None
                 
-                try:
-                    sender.UploadSingleRow(sensor_id, sensor_type, float_value, created_at)
-                except Exception as e:
-                    print(f"Error uploading data row for sensor {topic}: {e}")
+                # try:
+                #     sender.UploadSingleRow(sensor_id, sensor_type, float_value, created_at)
+                # except Exception as e:
+                #     print(f"Error uploading data row for sensor {topic}: {e}")
             
             connection.commit()
     except Exception as e:
