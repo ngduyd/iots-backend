@@ -2,6 +2,5 @@ paho-mqtt==2.1.0
 psycopg2-binary==2.9.10
 python-dotenv==1.1.1
 asyncio==4.0.0
-grpcio==1.76.0
-grpcio-tools==1.76.0
-protobuf==6.33.1
+fastapi==0.115.12
+uvicorn==0.34.0

@@ -1,74 +1,123 @@
-# MQTT Service
+# MQTT Backend Service
 
-This Python application acts as a bridge between an MQTT broker and a PostgreSQL database. It listens to MQTT messages, extracts sensor data, and stores the readings in the `values` table so they can be consumed by dashboards, analytics jobs, or downstream services.
+Backend Python service that ingests sensor messages from MQTT, stores data in PostgreSQL, and exposes authenticated HTTP APIs.
 
-## Core Components
-- `main.py`: Boots the service, connects to the MQTT broker, and starts the main loop.
-- `mqtt_client.py`: Configures the Paho MQTT client and handles incoming messages.
-- `db.py`: Creates the database schema and persists MQTT payloads to PostgreSQL.
-- `config.py`: Reads MQTT/PostgreSQL settings from environment variables.
-- `docker-compose.yaml`: Spins up the Python service alongside Mosquitto and PostgreSQL.
-- `mosquitto/config/`: Bundled configuration for securing the broker (`mosquitto.conf`, `passwd`).
+## Architecture
 
-## Requirements
-- Docker & Docker Compose (recommended for reproducible environments); or
-- Python >= 3.12, `pip`, PostgreSQL, and Mosquitto for manual execution.
+The repository is remapped to a backend-friendly structure:
 
-## Configuration Setup
-1. Create an `.env` file from the template: `cp .env.example .env`.
-2. Adjust the variables to match your environment (see the table below).
-3. If you run the app outside Docker and want to load `.env`, uncomment `load_dotenv()` in `config.py`.
+- `app/main.py`: FastAPI application entrypoint.
+- `app/runtime.py`: runtime that boots database + MQTT consumer in app lifecycle.
+- `app/api/routes/`: HTTP route modules (`health`, `auth`, `sensors`).
+- `app/security.py`: session auth and route protection.
+- `app/services/`: business/data services (`db`, `mqtt_client`, `manager`).
+- `app/core/config.py`: environment config for MQTT, DB, HTTP, and auth.
 
-### Environment Variables
-| Variable | Description | Default (docker-compose) |
-| --- | --- | --- |
-| `MQTT_BROKER` | MQTT broker host or IP | `mqtt`
-| `MQTT_PORT` | MQTT port | `1883`
-| `MQTT_TOPIC` | Topic to subscribe to | `sensors/data`
-| `MQTT_USERNAME` | MQTT username (if required) | `user`
-| `MQTT_PASSWORD` | MQTT password | `password`
-| `DB_HOST` | PostgreSQL host | `database`
-| `DB_PORT` | PostgreSQL port | `5432`
-| `DB_NAME` | Database name | `mydb`
-| `DB_USER` | Database user | `user`
-| `DB_PASSWORD` | Database password | `password`
+Compatibility wrappers are kept at root (`main.py`, `db.py`, `config.py`, `manager.py`, `mqtt_client.py`) so old imports do not break immediately.
 
-> `save_message` currently expects MQTT payloads in the form `"<type> <value>"` (e.g. `"temperature 27.5"`). Make sure your publishers follow this format.
+## Features
+
+- MQTT consumer via `paho-mqtt`
+- PostgreSQL persistence via `psycopg2`
+- HTTP API via FastAPI
+- Session-based authentication for protected routes
+- Sensor online/offline tracking
+
+## API Endpoints
+
+- `GET /api/health`: service health (no auth)
+- `POST /api/auth/login`: create session cookie
+- `POST /api/auth/logout`: clear session cookie
+- `GET /api/sensors`: list sensors (auth required)
+- `GET /api/sensors/{sensor_name}/values`: list sensor values (auth required)
+
+### Login Request Example
+
+```json
+{
+  "username": "admin",
+  "password": "admin123"
+}
+```
+
+### Session Usage
+
+- Login with `POST /api/auth/login`
+- Browser or HTTP client stores session cookie automatically
+- Call protected endpoints using the same cookie jar/session
+- Logout with `POST /api/auth/logout`
+
+## Environment Variables
+
+### MQTT
+
+- `MQTT_BROKER`
+- `MQTT_PORT` (default: `1883`)
+- `MQTT_TOPIC` (default: `#`)
+- `MQTT_USERNAME`
+- `MQTT_PASSWORD`
+
+### Database
+
+- `DB_HOST`
+- `DB_PORT` (default: `5432`)
+- `DB_NAME`
+- `DB_USER`
+- `DB_PASSWORD`
+
+### HTTP API
+
+- `HTTP_HOST` (default: `0.0.0.0`)
+- `HTTP_PORT` (default: `8000`)
+
+### Auth
+
+- `AUTH_USERNAME` (default: `admin`)
+- `AUTH_PASSWORD` (default: `admin123`)
+- `SESSION_SECRET` (required in production)
+- `SESSION_MAX_AGE_SECONDS` (default: `3600`)
+
+### Runtime
+
+- `SENSOR_OFFLINE_TIMEOUT` (default: `120`)
+
+## Run Locally
+
+1. Create and activate venv (PowerShell):
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
+2. Install dependencies:
+
+```powershell
+pip install -r requirements.txt
+```
+
+3. Configure environment (copy `.env.example` to `.env` and update values).
+
+4. Start backend:
+
+```powershell
+python main.py
+```
+
+Service will run on `http://localhost:8000` by default.
 
 ## Run with Docker Compose
-```bash
+
+```powershell
 docker-compose up --build
 ```
 
-- The Python service waits 5 seconds before connecting so PostgreSQL and Mosquitto have time to start.
-- Mosquitto reads configuration and credentials from `./mosquitto/config`.
-- PostgreSQL mounts the `db_data` Docker volume for persistent storage.
-- Port `1883` is exposed on the host for MQTT publishers; PostgreSQL is reachable on `5433` for debugging.
+- Backend API: `http://localhost:8000`
+- MQTT broker: `localhost:1883`
+- PostgreSQL debug port: `localhost:5433`
 
-## Run Manually (without Docker)
-1. Create a virtual environment and install dependencies:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate
-   pip install -r requirements.txt
-   ```
-2. Make sure Mosquitto and PostgreSQL are running and environment variables are exported (or enable `load_dotenv()` in `config.py`).
-3. Start the service:
-   ```bash
-   python main.py
-   ```
+## Notes for Production
 
-## Database Schema
-`db.init_db()` creates two tables:
-- `sensors`: catalog of sensor topics with an auto-increment primary key.
-- `values`: stores every measurement, links to `sensors.sensor_id`, and records the payload type, numeric value, and timestamp.
-
-Indexes `idx_type_time` and `idx_sensor_value` make querying by data type or sensor efficient.
-
-## Development Ideas
-- Add automated tests for `db.save_message` to validate payload parsing.
-- Extend the payload format (e.g. JSON) so you can capture metadata such as `unit` or `device_id`.
-- Consider adding health checks and structured logging (e.g. `structlog`).
-
-## License
-Fill in according to your distribution policy (not provided in this repository).
+- Change `AUTH_PASSWORD` and `SESSION_SECRET`.
+- Restrict API exposure with reverse proxy and TLS.
+- Add proper logging, tests, and migration tooling.

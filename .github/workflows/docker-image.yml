@@ -3,6 +3,8 @@ name: Docker Image CI
 on:
   push:
     branches: [ "latest" ]
+    tags:
+      - 'v*.*.*'
   pull_request:
     branches: [ "latest" ]
 

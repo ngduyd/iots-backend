@@ -13,12 +13,19 @@ services:
       - DB_NAME=${DB_NAME:-mydb}
       - DB_USER=${DB_USER:-user}
       - DB_PASSWORD=${DB_PASSWORD:-password}
-      - device_api_key=${device_api_key:-your_device_api_key}
+      - HTTP_HOST=${HTTP_HOST:-0.0.0.0}
+      - HTTP_PORT=${HTTP_PORT:-8000}
+      - AUTH_USERNAME=${AUTH_USERNAME:-admin}
+      - AUTH_PASSWORD=${AUTH_PASSWORD:-admin123}
+      - SESSION_SECRET=${SESSION_SECRET:-change-me}
+      - SESSION_MAX_AGE_SECONDS=${SESSION_MAX_AGE_SECONDS:-3600}
+      - SENSOR_OFFLINE_TIMEOUT=${SENSOR_OFFLINE_TIMEOUT:-120}
     depends_on:
       - mqtt
       - database
-    # ports:
-    #   - "5000:5000"
+    restart: always
+    ports:
+      - "8000:8000"
 
   mqtt:
     container_name: mqtt
@@ -27,6 +34,7 @@ services:
       - "1883:1883"
     volumes:
       - ./mosquitto/config:/mosquitto/config
+    restart: always
 
   database:
     container_name: database
@@ -38,25 +46,9 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql
+    restart: always
     
-  syncdata:
-    container_name: syncdata
-    image: docker.io/ngduyd/syncdata-client:latest
-    environment:
-      - DB_HOST=${DB_HOST:-database}
-      - DB_PORT=${DB_PORT:-5432}
-      - DB_NAME=${DB_NAME:-mydb}
-      - DB_USER=${DB_USER:-user}
-      - DB_PASSWORD=${DB_PASSWORD:-password}
-      - device_api_key=${device_api_key:-your_device_api_key}
-      - RECIVER_HOST=${RECIVER_HOST:-syncdata.example.com}
-      - RECIVER_PORT=${RECIVER_PORT:-443}
-    depends_on:
-      - database
-    # ports:
-    #   - "6000:6000"
-
   ui:
     container_name: ui
     image: docker.io/ngduyd/ui-iot:latest
@@ -73,11 +65,11 @@ services:
       - DB_NAME=${DB_NAME:-mydb}
       - DB_USER=${DB_USER:-user}
       - DB_PASSWORD=${DB_PASSWORD:-password}
-      - GRPC_SERVER_ADDR=${GRPC_SERVER_ADDR:-192.168.1.10:9090}
     depends_on:
       - mqtt-service
     ports:
       - "3000:8080"
+    restart: always
 
 volumes:
   db_data:
