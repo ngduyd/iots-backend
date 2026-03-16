@@ -4,22 +4,48 @@ from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.routes.auth import router as auth_router
-from app.api.routes.health import router as health_router
+from app.api.routes.branches import router as branches_router
+from app.api.routes.groups import router as groups_router
 from app.api.routes.sensors import router as sensors_router
+from app.api.routes.users import router as users_router
 from app.core import config
 from app.runtime import MqttRuntime
+from app.services import manager
+from app.services.database import close_db, init_db
 
 runtime = MqttRuntime()
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    print("Initializing database...")
+    try:
+        await init_db()
+    except Exception as e:
+        print(f"Database initialization failed: {e}")
+
+    print("Initializing sensor manager...")
+    try:
+        await manager.init()
+    except Exception as e:
+        print(f"Sensor manager initialization failed: {e}")
+
     await runtime.start()
-    yield
-    await runtime.stop()
+    try:
+        yield
+    finally:
+        await runtime.stop()
+        await close_db()
 
 
-app = FastAPI(title="MQTT Backend API", version="1.0.0", lifespan=lifespan)
+app = FastAPI(
+    title="MQTT Backend API",
+    version="1.0.0",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+)
 app.add_middleware(
     SessionMiddleware,
     secret_key=config.SESSION_SECRET,
@@ -27,6 +53,8 @@ app.add_middleware(
     same_site="lax",
     https_only=False,
 )
-app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(groups_router)
 app.include_router(sensors_router)
+app.include_router(branches_router)
+app.include_router(users_router)

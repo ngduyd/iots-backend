@@ -1,263 +1,527 @@
 import asyncio
+import hashlib
 import json
-from concurrent.futures import ThreadPoolExecutor
+import os
+import time
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import asyncpg
 
 from app.core import config
 
-executor = ThreadPoolExecutor(max_workers=5)
+db_pool = None
+_pool_lock = asyncio.Lock()
 
 
-def _get_db_connection():
-    try:
-        connection = psycopg2.connect(
-            host=config.DB_HOST,
-            port=config.DB_PORT,
-            database=config.DB_NAME,
-            user=config.DB_USER,
-            password=config.DB_PASSWORD,
-        )
-        return connection
-    except Exception as e:
-        print(f"Error connecting to the database: {e}")
+async def _init_connection(connection):
+    await connection.set_type_codec(
+        "json",
+        schema="pg_catalog",
+        encoder=json.dumps,
+        decoder=json.loads,
+        format="text",
+    )
+    await connection.set_type_codec(
+        "jsonb",
+        schema="pg_catalog",
+        encoder=json.dumps,
+        decoder=json.loads,
+        format="text",
+    )
+
+
+async def get_db_pool():
+    global db_pool
+
+    if db_pool is not None:
+        return db_pool
+
+    async with _pool_lock:
+        if db_pool is not None:
+            return db_pool
+
+        try:
+            db_pool = await asyncpg.create_pool(
+                host=config.DB_HOST,
+                port=config.DB_PORT,
+                database=config.DB_NAME,
+                user=config.DB_USER,
+                password=config.DB_PASSWORD,
+                min_size=1,
+                max_size=10,
+                init=_init_connection,
+            )
+            return db_pool
+        except Exception as e:
+            print(f"Error connecting to the database: {e}")
+            return None
+
+
+async def close_db():
+    global db_pool
+
+    if db_pool is not None:
+        await db_pool.close()
+        db_pool = None
+
+
+async def _execute(query, *args):
+    pool = await get_db_pool()
+    if pool is None:
         return None
 
+    async with pool.acquire() as connection:
+        return await connection.execute(query, *args)
 
-async def get_db_connection():
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(executor, _get_db_connection)
+
+async def _fetch(query, *args):
+    pool = await get_db_pool()
+    if pool is None:
+        return []
+
+    async with pool.acquire() as connection:
+        rows = await connection.fetch(query, *args)
+        return [dict(row) for row in rows]
+
+
+async def _fetchrow(query, *args):
+    pool = await get_db_pool()
+    if pool is None:
+        return None
+
+    async with pool.acquire() as connection:
+        row = await connection.fetchrow(query, *args)
+        return dict(row) if row else None
 
 
 async def init_db():
-    connection = await get_db_connection()
-    if connection is None:
+    pool = await get_db_pool()
+    if pool is None:
         return
-    try:
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(executor, _init_db_sync, connection)
-    finally:
-        connection.close()
 
-
-def _init_db_sync(connection):
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS sensors (
-                    sensor_id SERIAL PRIMARY KEY,
-                    name VARCHAR(50) UNIQUE,
-                    vbat DOUBLE PRECISION,
-                    status VARCHAR(100),
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
-                """
-            )
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS values (
-                    id BIGSERIAL PRIMARY KEY,
-                    sensor_id INT REFERENCES sensors(sensor_id),
-                    type VARCHAR(20),
-                    value DOUBLE PRECISION,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
-                """
-            )
-            cursor.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_type_time ON values(type, created_at);
-                """
-            )
-            cursor.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_sensor_value ON values(sensor_id, value);
-                """
-            )
-            connection.commit()
+        async with pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS groups (
+                        group_id SERIAL PRIMARY KEY,
+                        name VARCHAR(100) NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS branches (
+                        branch_id SERIAL PRIMARY KEY,
+                        group_id INT REFERENCES groups(group_id),
+                        name VARCHAR(100) NOT NULL,
+                        alert VARCHAR(100) DEFAULT 'none',
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id SERIAL PRIMARY KEY,
+                        group_id INT REFERENCES groups(group_id),
+                        username VARCHAR(50) UNIQUE NOT NULL,
+                        password_hash VARCHAR(255) NOT NULL,
+                        role VARCHAR(20) DEFAULT 'user' NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS sensors (
+                        sensor_id VARCHAR(32) PRIMARY KEY,
+                        branch_id INT REFERENCES branches(branch_id),
+                        name VARCHAR(50),
+                        status VARCHAR(100) DEFAULT 'offline' NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS values (
+                        id BIGSERIAL PRIMARY KEY,
+                        sensor_id VARCHAR(32) REFERENCES sensors(sensor_id),
+                        value JSONB NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS cameras (
+                        camera_id SERIAL PRIMARY KEY,
+                        branch_id INT REFERENCES branches(branch_id),
+                        name VARCHAR(50),
+                        ip_address VARCHAR(50),
+                        username VARCHAR(50),
+                        password VARCHAR(50),
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_sensor_time ON values(sensor_id, created_at);
+                    """
+                )
     except Exception as e:
         print(f"Error initializing the database: {e}")
 
 
-async def save_message(topic, payload):
-    connection = await get_db_connection()
-    if connection is None:
+async def save_message(topic, payload, received_at=None):
+    try:
+        data = json.loads(payload)
+    except Exception as e:
+        print(f"Error parsing payload: {e}")
         return
 
     try:
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(executor, _save_message_sync, connection, topic, payload)
+        if received_at is not None:
+            await _execute(
+                "INSERT INTO values (sensor_id, value, created_at) VALUES ($1, $2::jsonb, $3);",
+                topic,
+                json.dumps(data),
+                received_at,
+            )
+        else:
+            await _execute(
+                "INSERT INTO values (sensor_id, value) VALUES ($1, $2::jsonb);",
+                topic,
+                json.dumps(data),
+            )
     except Exception as e:
         print(f"Error saving message to the database: {e}")
-    finally:
-        connection.close()
 
 
-def _save_message_sync(connection, topic, payload):
+async def update_sensor_status(sensor_id, status):
     try:
-        with connection.cursor() as cursor:
-            try:
-                data = json.loads(payload)
-            except Exception as e:
-                print(f"Error parsing payload: {e}")
-                return
-
-            vbat_value = None
-            if "vbat" in data:
-                vbat_value = data.pop("vbat")
-
-            cursor.execute(
-                "INSERT INTO sensors (name, vbat, status) VALUES (%s, %s, %s) "
-                "ON CONFLICT (name) DO UPDATE SET "
-                "vbat = COALESCE(EXCLUDED.vbat, sensors.vbat), "
-                "status = 'online' "
-                "RETURNING sensor_id;",
-                (topic, float(vbat_value) if vbat_value else None, "online"),
-            )
-            row = cursor.fetchone()
-            if row is None:
-                print(f"Failed to get sensor_id for {topic}")
-                return
-
-            sensor_id = row[0]
-
-            for sensor_type, sensor_value in data.items():
-                try:
-                    float_value = float(sensor_value)
-                except (ValueError, TypeError):
-                    print(f"Skipping invalid value for {sensor_type}: {sensor_value}")
-                    continue
-
-                cursor.execute(
-                    "INSERT INTO values (sensor_id, type, value) VALUES (%s, %s, %s);",
-                    (sensor_id, sensor_type, float_value),
-                )
-
-            connection.commit()
-    except Exception as e:
-        print(f"Error in _save_message_sync: {e}")
-        connection.rollback()
-
-
-async def update_sensor_status(sensor_name, status):
-    connection = await get_db_connection()
-    if connection is None:
-        return
-    try:
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(executor, _update_sensor_status_sync, connection, sensor_name, status)
+        await _execute(
+            "UPDATE sensors SET status = $1, updated_at = NOW() WHERE sensor_id = $2;",
+            status,
+            sensor_id,
+        )
     except Exception as e:
         print(f"Error updating sensor status: {e}")
-    finally:
-        connection.close()
-
-
-def _update_sensor_status_sync(connection, sensor_name, status):
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "UPDATE sensors SET status = %s, updated_at = NOW() WHERE name = %s;",
-                (status, sensor_name),
-            )
-            connection.commit()
-    except Exception as e:
-        print(f"Error in _update_sensor_status_sync: {e}")
 
 
 async def get_all_sensor_status() -> dict:
-    connection = await get_db_connection()
-    if connection is None:
-        return {}
-
     try:
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(executor, _get_all_sensor_status_sync, connection)
+        rows = await _fetch("SELECT sensor_id, status FROM sensors;")
+        return {row["sensor_id"]: row["status"] for row in rows}
     except Exception as e:
         print(f"Error getting sensor status: {e}")
         return {}
-    finally:
-        connection.close()
-
-
-def _get_all_sensor_status_sync(connection):
-    status = {}
-    try:
-        with connection.cursor(cursor_factory=RealDictCursor) as cursor:
-            cursor.execute("SELECT name, status FROM sensors;")
-            result = cursor.fetchall()
-            for row in result:
-                status[row["name"]] = row["status"]
-    except Exception as e:
-        print(f"Error in _get_all_sensor_status_sync: {e}")
-    return status
 
 
 async def get_sensors(limit=100):
-    connection = await get_db_connection()
-    if connection is None:
-        return []
-
     try:
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(executor, _get_sensors_sync, connection, limit)
+        return await _fetch(
+                """
+            SELECT sensor_id, name, status, updated_at
+            FROM sensors
+            ORDER BY updated_at DESC
+            LIMIT $1;
+            """,
+            limit,
+        )
     except Exception as e:
         print(f"Error getting sensors: {e}")
-        return []
-    finally:
-        connection.close()
-
-
-def _get_sensors_sync(connection, limit):
-    try:
-        with connection.cursor(cursor_factory=RealDictCursor) as cursor:
-            cursor.execute(
-                """
-                SELECT sensor_id, name, vbat, status, updated_at
-                FROM sensors
-                ORDER BY updated_at DESC
-                LIMIT %s;
-                """,
-                (limit,),
-            )
-            return cursor.fetchall()
-    except Exception as e:
-        print(f"Error in _get_sensors_sync: {e}")
         return []
 
 
 async def get_sensor_values(sensor_name, limit=100):
-    connection = await get_db_connection()
-    if connection is None:
-        return []
-
     try:
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(executor, _get_sensor_values_sync, connection, sensor_name, limit)
+        return await _fetch(
+            """
+            SELECT s.name, v.value, v.created_at
+            FROM values v
+            JOIN sensors s ON s.sensor_id = v.sensor_id
+            WHERE s.name = $1
+            ORDER BY v.created_at DESC
+            LIMIT $2;
+            """,
+            sensor_name,
+            limit,
+        )
     except Exception as e:
         print(f"Error getting sensor values: {e}")
         return []
-    finally:
-        connection.close()
 
 
-def _get_sensor_values_sync(connection, sensor_name, limit):
+async def add_sensor(sensor_name=None, branch_id=None):
+    if branch_id is None:
+        print("branch_id is required")
+        return None
+
     try:
-        with connection.cursor(cursor_factory=RealDictCursor) as cursor:
-            cursor.execute(
-                """
-                SELECT s.name, v.type, v.value, v.created_at
-                FROM values v
-                JOIN sensors s ON s.sensor_id = v.sensor_id
-                WHERE s.name = %s
-                ORDER BY v.created_at DESC
-                LIMIT %s;
-                """,
-                (sensor_name, limit),
-            )
-            return cursor.fetchall()
+        sensor_id = _generate_sensor_id()
+        return await _fetchrow(
+            """
+            INSERT INTO sensors (sensor_id, name, branch_id)
+            VALUES ($1, $2, $3)
+            RETURNING sensor_id, name, status, updated_at;
+            """,
+            sensor_id,
+            sensor_name,
+            branch_id,
+        )
     except Exception as e:
-        print(f"Error in _get_sensor_values_sync: {e}")
+        print(f"Error adding sensor: {e}")
+        return None
+
+
+def _generate_sensor_id():
+    ts = int(time.time()).to_bytes(4, "big")
+    rand = os.urandom(12)
+    return (ts + rand).hex()
+
+
+async def create_branch(group_id, name, alert="none"):
+    try:
+        return await _fetchrow(
+            """
+            INSERT INTO branches (group_id, name, alert)
+            VALUES ($1, $2, $3)
+            RETURNING branch_id, group_id, name, alert, created_at;
+            """,
+            group_id,
+            name,
+            alert,
+        )
+    except Exception as e:
+        print(f"Error creating branch: {e}")
+        return None
+
+
+async def get_branches():
+    try:
+        return await _fetch(
+            """
+            SELECT * FROM branches;
+            """
+        )
+    except Exception as e:
+        print(f"Error getting branches: {e}")
         return []
+
+
+async def get_branch(branch_id):
+    try:
+        return await _fetchrow(
+            """
+            SELECT branch_id, group_id, name, alert, created_at
+            FROM branches
+            WHERE branch_id = $1;
+            """,
+            branch_id,
+        )
+    except Exception as e:
+        print(f"Error getting branch: {e}")
+        return None
+
+
+async def update_branch(branch_id, group_id, name, alert="none"):
+    try:
+        return await _fetchrow(
+            """
+            UPDATE branches
+            SET group_id = $1, name = $2, alert = $3
+            WHERE branch_id = $4
+            RETURNING branch_id, group_id, name, alert, created_at;
+            """,
+            group_id,
+            name,
+            alert,
+            branch_id,
+        )
+    except Exception as e:
+        print(f"Error updating branch: {e}")
+        return None
+
+
+async def delete_branch(branch_id):
+    try:
+        row = await _fetchrow(
+            """
+            DELETE FROM branches
+            WHERE branch_id = $1
+            RETURNING branch_id;
+            """,
+            branch_id,
+        )
+        return row is not None
+    except Exception as e:
+        print(f"Error deleting branch: {e}")
+        return False
+
+
+async def create_group(name):
+    try:
+        return await _fetchrow(
+            """
+            INSERT INTO groups (name)
+            VALUES ($1)
+            RETURNING group_id, name, created_at;
+            """,
+            name,
+        )
+    except Exception as e:
+        print(f"Error creating group: {e}")
+        return None
+
+
+async def get_groups():
+    try:
+        return await _fetch(
+            """
+            SELECT group_id, name, created_at
+            FROM groups
+            ORDER BY group_id DESC;
+            """
+        )
+    except Exception as e:
+        print(f"Error getting groups: {e}")
+        return []
+
+
+async def get_group(group_id):
+    try:
+        return await _fetchrow(
+            """
+            SELECT group_id, name, created_at
+            FROM groups
+            WHERE group_id = $1;
+            """,
+            group_id,
+        )
+    except Exception as e:
+        print(f"Error getting group: {e}")
+        return None
+
+
+async def update_group(group_id, name):
+    try:
+        return await _fetchrow(
+            """
+            UPDATE groups
+            SET name = $1
+            WHERE group_id = $2
+            RETURNING group_id, name, created_at;
+            """,
+            name,
+            group_id,
+        )
+    except Exception as e:
+        print(f"Error updating group: {e}")
+        return None
+
+
+async def delete_group(group_id):
+    try:
+        row = await _fetchrow(
+            """
+            DELETE FROM groups
+            WHERE group_id = $1
+            RETURNING group_id;
+            """,
+            group_id,
+        )
+        return row is not None
+    except Exception as e:
+        print(f"Error deleting group: {e}")
+        return False
+
+
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+async def create_user(username, password, group_id=None, role="user"):
+    try:
+        return await _fetchrow(
+            """
+            INSERT INTO users (username, password_hash, group_id, role)
+            VALUES ($1, $2, $3, $4)
+            RETURNING user_id, group_id, username, role, created_at;
+            """,
+            username,
+            _hash_password(password),
+            group_id,
+            role,
+        )
+    except Exception as e:
+        print(f"Error creating user: {e}")
+        return None
+
+
+async def get_users():
+    try:
+        return await _fetch(
+            """
+            SELECT user_id, group_id, username, role, created_at
+            FROM users
+            ORDER BY user_id DESC;
+            """
+        )
+    except Exception as e:
+        print(f"Error getting users: {e}")
+        return []
+
+
+async def get_user(user_id):
+    try:
+        return await _fetchrow(
+            """
+            SELECT user_id, group_id, username, role, created_at
+            FROM users
+            WHERE user_id = $1;
+            """,
+            user_id,
+        )
+    except Exception as e:
+        print(f"Error getting user: {e}")
+        return None
+
+
+async def update_user(user_id, username, group_id=None, role="user"):
+    try:
+        return await _fetchrow(
+            """
+            UPDATE users
+            SET username = $1, group_id = $2, role = $3
+            WHERE user_id = $4
+            RETURNING user_id, group_id, username, role, created_at;
+            """,
+            username,
+            group_id,
+            role,
+            user_id,
+        )
+    except Exception as e:
+        print(f"Error updating user: {e}")
+        return None
+
+
+async def delete_user(user_id):
+    try:
+        row = await _fetchrow(
+            """
+            DELETE FROM users
+            WHERE user_id = $1
+            RETURNING user_id;
+            """,
+            user_id,
+        )
+        return row is not None
+    except Exception as e:
+        print(f"Error deleting user: {e}")
+        return False

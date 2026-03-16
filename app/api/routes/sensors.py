@@ -1,13 +1,13 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.schemas import SensorListResponse, SensorStatus, SensorValue, SensorValueListResponse
+from app.schemas import SensorCreateRequest, SensorListResponse, SensorStatus, SensorValue, SensorValueListResponse, ResponseMessage
 from app.security import get_current_user
-from app.services.database import get_sensor_values, get_sensors
+from app.services.database import add_sensor as create_sensor, get_sensor_values, get_sensors
 
 router = APIRouter(prefix="/api/sensors", tags=["sensors"])
 
 
-@router.get("", response_model=SensorListResponse)
+@router.get("", response_model=ResponseMessage)
 async def list_sensors(
     limit: int = Query(default=100, ge=1, le=1000),
     _user: str = Depends(get_current_user),
@@ -17,15 +17,18 @@ async def list_sensors(
         SensorStatus(
             name=row["name"],
             status=row.get("status"),
-            vbat=row.get("vbat"),
             updated_at=row.get("updated_at"),
         )
         for row in rows
     ]
-    return SensorListResponse(count=len(items), items=items)
+    return ResponseMessage(
+        code=200,
+        message="Sensors retrieved successfully",
+        data=SensorListResponse(count=len(items), items=items),
+    )
 
 
-@router.get("/{sensor_name}/values", response_model=SensorValueListResponse)
+@router.get("/{sensor_name}/values", response_model=ResponseMessage)
 async def list_sensor_values(
     sensor_name: str,
     limit: int = Query(default=100, ge=1, le=1000),
@@ -34,10 +37,32 @@ async def list_sensor_values(
     rows = await get_sensor_values(sensor_name=sensor_name, limit=limit)
     items = [
         SensorValue(
-            type=row["type"],
-            value=float(row["value"]),
+            value=row["value"],
             created_at=row["created_at"],
         )
         for row in rows
     ]
-    return SensorValueListResponse(sensor=sensor_name, count=len(items), items=items)
+    return ResponseMessage(
+        code=200,
+        message="Sensor values retrieved successfully",
+        data=SensorValueListResponse(sensor=sensor_name, count=len(items), items=items),
+    )
+
+@router.post("", response_model=ResponseMessage)
+async def add_sensor(sensor: SensorCreateRequest, _user: str = Depends(get_current_user)):
+    row = await create_sensor(
+        sensor_name=sensor.name,
+        branch_id=sensor.branch_id,
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="Cannot create sensor")
+
+    return ResponseMessage(
+        code=200,
+        message="Sensor created successfully",
+        data=SensorStatus(
+            name=row.get("name"),
+            status=row.get("status"),
+            updated_at=row.get("updated_at"),
+        ),
+    )

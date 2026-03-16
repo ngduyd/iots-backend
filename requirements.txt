@@ -1,5 +1,6 @@
 paho-mqtt==2.1.0
-psycopg2-binary==2.9.10
+asyncpg==0.30.0
+itsdangerous
 python-dotenv==1.1.1
 asyncio==4.0.0
 fastapi==0.115.12
