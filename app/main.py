@@ -11,7 +11,7 @@ from app.api.routes.users import router as users_router
 from app.core import config
 from app.runtime import MqttRuntime
 from app.services import manager
-from app.services.database import close_db, init_db
+from app.services.database import close_db, ensure_default_admin_user, init_db
 
 runtime = MqttRuntime()
 
@@ -21,6 +21,11 @@ async def lifespan(_app: FastAPI):
     print("Initializing database...")
     try:
         await init_db()
+        admin_user = await ensure_default_admin_user()
+        if admin_user is not None:
+            print("Default admin user is ready")
+        else:
+            print("Cannot ensure default admin user")
     except Exception as e:
         print(f"Database initialization failed: {e}")
 

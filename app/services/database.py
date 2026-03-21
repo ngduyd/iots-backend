@@ -135,6 +135,21 @@ async def init_db():
                 )
                 await connection.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS user_sessions (
+                        session_id VARCHAR(128) PRIMARY KEY,
+                        user_id INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                        ip_address VARCHAR(45),
+                        user_agent TEXT,
+                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                        expires_at TIMESTAMPTZ NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS sensors (
                         sensor_id VARCHAR(32) PRIMARY KEY,
                         branch_id INT REFERENCES branches(branch_id),
@@ -171,6 +186,16 @@ async def init_db():
                 await connection.execute(
                     """
                     CREATE INDEX IF NOT EXISTS idx_sensor_time ON values(sensor_id, created_at);
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);
                     """
                 )
     except Exception as e:
@@ -463,6 +488,22 @@ async def create_user(username, password, group_id=None, role="user"):
         return None
 
 
+async def ensure_default_admin_user():
+    try:
+        existing = await get_user_by_username("admin")
+        if existing is not None:
+            return existing
+
+        return await create_user(
+            username="admin",
+            password="admin123",
+            role="admin",
+        )
+    except Exception as e:
+        print(f"Error ensuring default admin user: {e}")
+        return None
+
+
 async def get_users():
     try:
         return await _fetch(
@@ -489,6 +530,37 @@ async def get_user(user_id):
         )
     except Exception as e:
         print(f"Error getting user: {e}")
+        return None
+
+
+async def get_user_by_username(username):
+    try:
+        return await _fetchrow(
+            """
+            SELECT user_id, group_id, username, role, created_at
+            FROM users
+            WHERE username = $1;
+            """,
+            username,
+        )
+    except Exception as e:
+        print(f"Error getting user by username: {e}")
+        return None
+
+
+async def authenticate_user(username, password):
+    try:
+        return await _fetchrow(
+            """
+            SELECT user_id, group_id, username, role, created_at
+            FROM users
+            WHERE username = $1 AND password_hash = $2;
+            """,
+            username,
+            _hash_password(password),
+        )
+    except Exception as e:
+        print(f"Error authenticating user: {e}")
         return None
 
 
@@ -524,4 +596,155 @@ async def delete_user(user_id):
         return row is not None
     except Exception as e:
         print(f"Error deleting user: {e}")
+        return False
+
+
+async def create_user_session(
+    session_id,
+    user_id,
+    expires_at,
+    ip_address=None,
+    user_agent=None,
+):
+    try:
+        return await _fetchrow(
+            """
+            INSERT INTO user_sessions (session_id, user_id, ip_address, user_agent, expires_at)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING session_id, user_id, ip_address, user_agent, is_active, expires_at, created_at, updated_at, last_seen_at;
+            """,
+            session_id,
+            user_id,
+            ip_address,
+            user_agent,
+            expires_at,
+        )
+    except Exception as e:
+        print(f"Error creating user session: {e}")
+        return None
+
+
+async def get_user_session(session_id):
+    try:
+        return await _fetchrow(
+            """
+            SELECT session_id, user_id, ip_address, user_agent, is_active, expires_at, created_at, updated_at, last_seen_at
+            FROM user_sessions
+            WHERE session_id = $1;
+            """,
+            session_id,
+        )
+    except Exception as e:
+        print(f"Error getting user session: {e}")
+        return None
+
+
+async def get_active_user_session(session_id):
+    try:
+        return await _fetchrow(
+            """
+            SELECT session_id, user_id, ip_address, user_agent, is_active, expires_at, created_at, updated_at, last_seen_at
+            FROM user_sessions
+            WHERE session_id = $1
+              AND is_active = TRUE
+              AND expires_at > NOW();
+            """,
+            session_id,
+        )
+    except Exception as e:
+        print(f"Error getting active user session: {e}")
+        return None
+
+
+async def touch_user_session(session_id):
+    try:
+        return await _fetchrow(
+            """
+            UPDATE user_sessions
+            SET last_seen_at = NOW(), updated_at = NOW()
+            WHERE session_id = $1
+              AND is_active = TRUE
+              AND expires_at > NOW()
+            RETURNING session_id, user_id, ip_address, user_agent, is_active, expires_at, created_at, updated_at, last_seen_at;
+            """,
+            session_id,
+        )
+    except Exception as e:
+        print(f"Error touching user session: {e}")
+        return None
+
+
+async def revoke_user_session(session_id):
+    try:
+        row = await _fetchrow(
+            """
+            UPDATE user_sessions
+            SET is_active = FALSE, updated_at = NOW()
+            WHERE session_id = $1
+            RETURNING session_id;
+            """,
+            session_id,
+        )
+        return row is not None
+    except Exception as e:
+        print(f"Error revoking user session: {e}")
+        return False
+
+
+async def revoke_all_user_sessions(user_id):
+    try:
+        status = await _execute(
+            """
+            UPDATE user_sessions
+            SET is_active = FALSE, updated_at = NOW()
+            WHERE user_id = $1 AND is_active = TRUE;
+            """,
+            user_id,
+        )
+        return isinstance(status, str)
+    except Exception as e:
+        print(f"Error revoking all user sessions: {e}")
+        return False
+
+
+async def get_user_sessions(user_id, active_only=False):
+    try:
+        if active_only:
+            return await _fetch(
+                """
+                SELECT session_id, user_id, ip_address, user_agent, is_active, expires_at, created_at, updated_at, last_seen_at
+                FROM user_sessions
+                WHERE user_id = $1
+                  AND is_active = TRUE
+                  AND expires_at > NOW()
+                ORDER BY created_at DESC;
+                """,
+                user_id,
+            )
+
+        return await _fetch(
+            """
+            SELECT session_id, user_id, ip_address, user_agent, is_active, expires_at, created_at, updated_at, last_seen_at
+            FROM user_sessions
+            WHERE user_id = $1
+            ORDER BY created_at DESC;
+            """,
+            user_id,
+        )
+    except Exception as e:
+        print(f"Error getting user sessions: {e}")
+        return []
+
+
+async def delete_expired_user_sessions():
+    try:
+        status = await _execute(
+            """
+            DELETE FROM user_sessions
+            WHERE expires_at <= NOW() OR is_active = FALSE;
+            """
+        )
+        return isinstance(status, str)
+    except Exception as e:
+        print(f"Error deleting expired user sessions: {e}")
         return False
