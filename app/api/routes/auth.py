@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.post("/login", response_model=ResponseMessage)
-async def login(payload: LoginRequest, request: Request):
+async def login(payload: LoginRequest, request: Request, response: Response):
     user = await authenticate_user(payload.username, payload.password)
 
     # Backward compatibility for bootstrap credentials from env.
@@ -58,6 +58,14 @@ async def login(payload: LoginRequest, request: Request):
 
     create_user_session(request, payload.username)
     request.session["sid"] = session_id
+    response.set_cookie(
+        key="sid",
+        value=session_id,
+        max_age=config.SESSION_MAX_AGE_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+    )
 
     return ResponseMessage(
         code=200,
@@ -69,13 +77,14 @@ async def login(payload: LoginRequest, request: Request):
 @router.post("/logout", response_model=ResponseMessage)
 async def logout(request: Request, response: Response):
     user = request.session.get("user")
-    session_id = request.session.get("sid")
+    session_id = request.session.get("sid") or request.cookies.get("sid")
 
     if session_id:
         await revoke_user_session(str(session_id))
 
     clear_user_session(request)
     response.delete_cookie(key="session")
+    response.delete_cookie(key="sid")
 
     return ResponseMessage(
         code=200,
@@ -87,11 +96,12 @@ async def logout(request: Request, response: Response):
 @router.get("/validate", response_model=ResponseMessage)
 async def validate_session(request: Request, response: Response):
     user = request.session.get("user")
-    session_id = request.session.get("sid")
+    session_id = request.session.get("sid") or request.cookies.get("sid")
 
     if not user or not session_id:
         clear_user_session(request)
         response.delete_cookie(key="session")
+        response.delete_cookie(key="sid")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session is invalid or expired",
@@ -101,6 +111,7 @@ async def validate_session(request: Request, response: Response):
     if session_row is None:
         clear_user_session(request)
         response.delete_cookie(key="session")
+        response.delete_cookie(key="sid")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session is invalid or expired",
