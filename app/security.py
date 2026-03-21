@@ -1,8 +1,9 @@
 import hmac
 
-from fastapi import HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 
 from app.core import config
+from app.services.database import get_user_by_username
 
 
 def verify_login(username: str, password: str) -> bool:
@@ -27,3 +28,24 @@ def get_current_user(request: Request) -> str:
             detail="Authentication required",
         )
     return str(user)
+
+
+async def get_current_user_record(
+    username: str = Depends(get_current_user),
+) -> dict:
+    user = await get_user_by_username(username)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current user not found",
+        )
+    return user
+
+
+async def require_admin(current_user: dict = Depends(get_current_user_record)) -> dict:
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required",
+        )
+    return current_user
