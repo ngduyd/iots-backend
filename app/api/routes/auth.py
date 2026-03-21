@@ -98,7 +98,7 @@ async def validate_session(request: Request, response: Response):
     user = request.session.get("user")
     session_id = request.session.get("sid") or request.cookies.get("sid")
 
-    if not user or not session_id:
+    if not session_id:
         clear_user_session(request)
         response.delete_cookie(key="session")
         response.delete_cookie(key="sid")
@@ -121,5 +121,8 @@ async def validate_session(request: Request, response: Response):
     return ResponseMessage(
         code=200,
         message="Session is valid",
-        data=LoginResponse(message="Session is valid", user=str(user)),
+        data=LoginResponse(
+            message="Session is valid",
+            user=user if isinstance(user, str) else None,
+        ),
     )
