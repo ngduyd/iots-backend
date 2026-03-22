@@ -263,6 +263,24 @@ async def get_sensors(limit=100):
         return []
 
 
+async def get_sensors_by_branch(branch_id, limit=100):
+    try:
+        return await _fetch(
+            """
+            SELECT sensor_id, name, status, updated_at
+            FROM sensors
+            WHERE branch_id = $1
+            ORDER BY updated_at DESC
+            LIMIT $2;
+            """,
+            branch_id,
+            limit,
+        )
+    except Exception as e:
+        print(f"Error getting sensors by branch: {e}")
+        return []
+
+
 async def get_sensor_values(sensor_name, limit=100):
     try:
         return await _fetch(

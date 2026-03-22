@@ -1,0 +1,27 @@
+name: Python Deployment
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Deploy using ssh
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        port: 22
+        script: |
+          cd /iots-backend
+          git fetch origin
+          git checkout main
+          git pull
+          npm install
+          npm run build
+          pm2 reload next-demo
+            
+          
