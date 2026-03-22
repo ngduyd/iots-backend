@@ -43,7 +43,13 @@ jobs:
             echo $! > "$PID_FILE"
             sleep 2
             NEW_PID=$(cat "$PID_FILE")
-            ps -p "$NEW_PID" -o pid=,cmd=
+            if kill -0 "$NEW_PID" >/dev/null 2>&1; then
+              echo "iots-backend started with PID $NEW_PID"
+            else
+              echo "iots-backend failed to start. Last 100 lines of app.log:"
+              tail -n 100 /root/iots-backend/app.log || true
+              exit 1
+            fi
           fi
             
           
