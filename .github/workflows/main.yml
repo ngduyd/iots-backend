@@ -16,7 +16,7 @@ jobs:
         password: ${{ secrets.PASSWORD }}
         port: 22
         script: |
-          cd /iots-backend
+          cd /root/iots-backend
           git fetch origin
           git checkout main
           git pull
