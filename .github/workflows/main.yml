@@ -9,19 +9,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Deploy using ssh
-      uses: appleboy/ssh-action@master
+      uses: appleboy/ssh-action@v1.2.0
       with:
         host: ${{ secrets.HOST }}
         username: ${{ secrets.USERNAME }}
         password: ${{ secrets.PASSWORD }}
         port: 22
         script: |
+          set -e
           cd /root/iots-backend
-          git fetch origin
+          git fetch --prune origin main
           git checkout main
-          git pull
-          npm install
-          npm run build
-          pm2 reload next-demo
+          git reset --hard origin/main
+
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+          if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^iots-backend.service'; then
+            systemctl restart iots-backend
+            systemctl status iots-backend --no-pager -l | tail -n 20
+          else
+            pkill -f "uvicorn app.main:app" || true
+            nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > /root/iots-backend/app.log 2>&1 &
+            sleep 2
+            pgrep -af "uvicorn app.main:app"
+          fi
             
           
