@@ -31,10 +31,19 @@ jobs:
             systemctl restart iots-backend
             systemctl status iots-backend --no-pager -l | tail -n 20
           else
-            pkill -f "uvicorn app.main:app" || true
+            PID_FILE=/root/iots-backend/uvicorn.pid
+            if [ -f "$PID_FILE" ]; then
+              OLD_PID=$(cat "$PID_FILE")
+              if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" >/dev/null 2>&1; then
+                kill "$OLD_PID"
+                sleep 1
+              fi
+            fi
             nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > /root/iots-backend/app.log 2>&1 &
+            echo $! > "$PID_FILE"
             sleep 2
-            pgrep -af "uvicorn app.main:app"
+            NEW_PID=$(cat "$PID_FILE")
+            ps -p "$NEW_PID" -o pid=,cmd=
           fi
             
           
