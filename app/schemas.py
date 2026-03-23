@@ -42,6 +42,7 @@ class BranchCreateRequest(BaseModel):
 
 
 class BranchCreateByAdminRequest(BaseModel):
+    group_id: int | None = None
     name: str
     alert: str = "none"
 
@@ -86,6 +87,7 @@ class UserCreateRequest(BaseModel):
 class UserCreateByAdminRequest(BaseModel):
     username: str
     password: str
+    group_id: int | None = None
     role: str = "user"
 
 

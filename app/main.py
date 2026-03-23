@@ -23,9 +23,9 @@ async def lifespan(_app: FastAPI):
         await init_db()
         admin_user = await ensure_default_admin_user()
         if admin_user is not None:
-            print("Default admin user is ready")
+            print("Default admin and superadmin users are ready")
         else:
-            print("Cannot ensure default admin user")
+            print("Cannot ensure default admin/superadmin users")
     except Exception as e:
         print(f"Database initialization failed: {e}")
 

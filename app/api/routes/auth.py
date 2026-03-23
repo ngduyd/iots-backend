@@ -11,6 +11,7 @@ from app.services.database import (
     create_user as create_user_db,
     create_user_session as create_user_session_db,
     get_active_user_session,
+    get_user,
     get_user_by_username,
     revoke_user_session,
     touch_user_session,
@@ -30,7 +31,7 @@ async def login(payload: LoginRequest, request: Request, response: Response):
             user = await create_user_db(
                 username=payload.username,
                 password=payload.password,
-                role="admin",
+                role="superadmin",
             )
 
     if user is None:
@@ -56,8 +57,7 @@ async def login(payload: LoginRequest, request: Request, response: Response):
             detail="Cannot create login session",
         )
 
-    create_user_session(request, payload.username)
-    request.session["sid"] = session_id
+    create_user_session(request, session_id, payload.username)
     response.set_cookie(
         key="sid",
         value=session_id,
@@ -80,6 +80,11 @@ async def logout(request: Request, response: Response):
     session_id = request.session.get("sid") or request.cookies.get("sid")
 
     if session_id:
+        session_row = await get_active_user_session(str(session_id))
+        if session_row is not None:
+            current_user = await get_user(session_row.get("user_id"))
+            if current_user is not None:
+                user = current_user.get("username")
         await revoke_user_session(str(session_id))
 
     clear_user_session(request)
@@ -95,7 +100,6 @@ async def logout(request: Request, response: Response):
 
 @router.get("/validate", response_model=ResponseMessage)
 async def validate_session(request: Request, response: Response):
-    user = request.session.get("user")
     session_id = request.session.get("sid") or request.cookies.get("sid")
 
     if not session_id:
@@ -118,11 +122,12 @@ async def validate_session(request: Request, response: Response):
         )
 
     await touch_user_session(str(session_id))
+    current_user = await get_user(session_row.get("user_id"))
     return ResponseMessage(
         code=200,
         message="Session is valid",
         data=LoginResponse(
             message="Session is valid",
-            user=user if isinstance(user, str) else None,
+            user=current_user.get("username") if current_user else None,
         ),
     )

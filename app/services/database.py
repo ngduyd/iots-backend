@@ -247,8 +247,22 @@ async def get_all_sensor_status() -> dict:
         return {}
 
 
-async def get_sensors(limit=100):
+async def get_sensors(limit=100, group_id=None):
     try:
+        if group_id is not None:
+            return await _fetch(
+                """
+                SELECT s.sensor_id, s.name, s.status, s.updated_at
+                FROM sensors s
+                JOIN branches b ON b.branch_id = s.branch_id
+                WHERE b.group_id = $1
+                ORDER BY s.updated_at DESC
+                LIMIT $2;
+                """,
+                group_id,
+                limit,
+            )
+
         return await _fetch(
                 """
             SELECT sensor_id, name, status, updated_at
@@ -281,8 +295,24 @@ async def get_sensors_by_branch(branch_id, limit=100):
         return []
 
 
-async def get_sensor_values(sensor_name, limit=100):
+async def get_sensor_values(sensor_name, limit=100, group_id=None):
     try:
+        if group_id is not None:
+            return await _fetch(
+                """
+                SELECT s.name, v.value, v.created_at
+                FROM values v
+                JOIN sensors s ON s.sensor_id = v.sensor_id
+                JOIN branches b ON b.branch_id = s.branch_id
+                WHERE s.name = $1 AND b.group_id = $2
+                ORDER BY v.created_at DESC
+                LIMIT $3;
+                """,
+                sensor_name,
+                group_id,
+                limit,
+            )
+
         return await _fetch(
             """
             SELECT s.name, v.value, v.created_at
@@ -345,8 +375,19 @@ async def create_branch(group_id, name, alert="none"):
         return None
 
 
-async def get_branches():
+async def get_branches(group_id=None):
     try:
+        if group_id is not None:
+            return await _fetch(
+                """
+                SELECT branch_id, group_id, name, alert, created_at
+                FROM branches
+                WHERE group_id = $1
+                ORDER BY branch_id DESC;
+                """,
+                group_id,
+            )
+
         return await _fetch(
             """
             SELECT * FROM branches;
@@ -357,8 +398,19 @@ async def get_branches():
         return []
 
 
-async def get_branch(branch_id):
+async def get_branch(branch_id, group_id=None):
     try:
+        if group_id is not None:
+            return await _fetchrow(
+                """
+                SELECT branch_id, group_id, name, alert, created_at
+                FROM branches
+                WHERE branch_id = $1 AND group_id = $2;
+                """,
+                branch_id,
+                group_id,
+            )
+
         return await _fetchrow(
             """
             SELECT branch_id, group_id, name, alert, created_at
@@ -508,22 +560,73 @@ async def create_user(username, password, group_id=None, role="user"):
 
 async def ensure_default_admin_user():
     try:
-        existing = await get_user_by_username("admin")
-        if existing is not None:
-            return existing
+        existing_superadmin = await get_user_by_username("superadmin")
+        if existing_superadmin is not None and existing_superadmin.get("role") != "superadmin":
+            existing_superadmin = await _fetchrow(
+                """
+                UPDATE users
+                SET role = 'superadmin'
+                WHERE user_id = $1
+                RETURNING user_id, group_id, username, role, created_at;
+                """,
+                existing_superadmin["user_id"],
+            )
 
-        return await create_user(
-            username="admin",
-            password="admin123",
-            role="admin",
+        if existing_superadmin is None:
+            existing_superadmin = await create_user(
+                username="superadmin",
+                password="superadmin123",
+                role="superadmin",
+            )
+
+        existing_admin = await get_user_by_username("admin")
+        if existing_admin is None:
+            existing_admin = await create_user(
+                username="admin",
+                password="admin123",
+                role="admin",
+            )
+        elif existing_admin.get("role") != "admin":
+            existing_admin = await _fetchrow(
+                """
+                UPDATE users
+                SET role = 'admin'
+                WHERE user_id = $1
+                RETURNING user_id, group_id, username, role, created_at;
+                """,
+                existing_admin["user_id"],
+            )
+
+        if existing_superadmin is not None:
+            return existing_superadmin
+
+        return await _fetchrow(
+            """
+            SELECT user_id, group_id, username, role, created_at
+            FROM users
+            WHERE role = 'superadmin'
+            ORDER BY user_id ASC
+            LIMIT 1;
+            """
         )
     except Exception as e:
         print(f"Error ensuring default admin user: {e}")
         return None
 
 
-async def get_users():
+async def get_users(group_id=None):
     try:
+        if group_id is not None:
+            return await _fetch(
+                """
+                SELECT user_id, group_id, username, role, created_at
+                FROM users
+                WHERE group_id = $1
+                ORDER BY user_id DESC;
+                """,
+                group_id,
+            )
+
         return await _fetch(
             """
             SELECT user_id, group_id, username, role, created_at
