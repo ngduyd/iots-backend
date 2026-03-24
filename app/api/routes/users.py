@@ -6,6 +6,7 @@ from app.services.database import (
     create_user as create_user_db,
     delete_user as delete_user_db,
     get_user as get_user_db,
+    get_user_by_username as get_user_by_username_db,
     get_users as get_users_db,
     update_user as update_user_db,
 )
@@ -72,6 +73,10 @@ async def create_user(
 
     if is_superadmin(admin_user) and user.group_id is None:
         raise HTTPException(status_code=400, detail="group_id is required for superadmin")
+
+    existing_user = await get_user_by_username_db(user.username)
+    if existing_user:
+        raise HTTPException(status_code=409, detail="Username already exists")
 
     group_id = user.group_id if is_superadmin(admin_user) else admin_user.get("group_id")
     row = await create_user_db(

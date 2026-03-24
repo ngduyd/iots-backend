@@ -68,6 +68,7 @@ async def list_branch_sensors(
     rows = await get_sensors_by_branch_db(branch_id=branch_id, limit=limit)
     items = [
         SensorStatus(
+            sensor_id=row.get("sensor_id"),
             name=row.get("name"),
             status=row.get("status"),
             updated_at=row.get("updated_at"),

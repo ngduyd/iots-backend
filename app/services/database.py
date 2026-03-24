@@ -277,6 +277,33 @@ async def get_sensors(limit=100, group_id=None):
         return []
 
 
+async def get_sensor(sensor_id, group_id=None):
+    try:
+        if group_id is not None:
+            return await _fetchrow(
+                """
+                SELECT s.sensor_id, s.name, s.status, s.updated_at
+                FROM sensors s
+                JOIN branches b ON b.branch_id = s.branch_id
+                WHERE s.sensor_id = $1 AND b.group_id = $2;
+                """,
+                sensor_id,
+                group_id,
+            )
+
+        return await _fetchrow(
+            """
+            SELECT sensor_id, name, status, updated_at
+            FROM sensors
+            WHERE sensor_id = $1;
+            """,
+            sensor_id,
+        )
+    except Exception as e:
+        print(f"Error getting sensor: {e}")
+        return None
+
+
 async def get_sensors_by_branch(branch_id, limit=100):
     try:
         return await _fetch(

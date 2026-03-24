@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.schemas import SensorCreateRequest, SensorListResponse, SensorStatus, SensorValue, SensorValueListResponse, ResponseMessage
 from app.security import get_current_user_record, is_superadmin, require_admin
-from app.services.database import add_sensor as create_sensor, get_branch, get_sensor_values, get_sensors
+from app.services.database import add_sensor as create_sensor, get_branch, get_sensor, get_sensor_values, get_sensors
 
 router = APIRouter(prefix="/api/sensors", tags=["sensors"])
 
@@ -21,6 +21,7 @@ async def list_sensors(
     )
     items = [
         SensorStatus(
+            sensor_id=row.get("sensor_id"),
             name=row["name"],
             status=row.get("status"),
             updated_at=row.get("updated_at"),
@@ -31,6 +32,33 @@ async def list_sensors(
         code=200,
         message="Sensors retrieved successfully",
         data=SensorListResponse(count=len(items), items=items),
+    )
+
+
+@router.get("/{sensor_id}", response_model=ResponseMessage)
+async def get_sensor_by_id(
+    sensor_id: str,
+    current_user: dict = Depends(get_current_user_record),
+):
+    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+        raise HTTPException(status_code=403, detail="User is not assigned to any group")
+
+    row = await get_sensor(
+        sensor_id=sensor_id,
+        group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Sensor not found")
+
+    return ResponseMessage(
+        code=200,
+        message="Sensor retrieved successfully",
+        data=SensorStatus(
+            sensor_id=row.get("sensor_id"),
+            name=row.get("name"),
+            status=row.get("status"),
+            updated_at=row.get("updated_at"),
+        ),
     )
 
 
@@ -84,6 +112,7 @@ async def add_sensor(sensor: SensorCreateRequest, admin_user: dict = Depends(req
         code=200,
         message="Sensor created successfully",
         data=SensorStatus(
+            sensor_id=row.get("sensor_id"),
             name=row.get("name"),
             status=row.get("status"),
             updated_at=row.get("updated_at"),

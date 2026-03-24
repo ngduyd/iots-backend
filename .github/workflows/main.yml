@@ -1,11 +1,13 @@
 name: Python Deployment
 
 on:
+#Tiến hành gọi jobs khi nhánh main được merge hoặc pull
   push:
     branches: [main]
 
 jobs:
   deploy:
+  #muốn workflows chạy trên máy ảo (OS) gì
     runs-on: ubuntu-latest
     steps:
     - name: Deploy using ssh
