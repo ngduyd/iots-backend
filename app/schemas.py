@@ -17,7 +17,6 @@ class SensorStatus(BaseModel):
     sensor_id: str | None = None
     name: str | None = None
     status: str | None = None
-    vbat: float | None = None
     updated_at: datetime | None = None
 
 
@@ -68,7 +67,8 @@ class HealthResponse(BaseModel):
 
 
 class SensorValueListResponse(BaseModel):
-    sensor: str
+    sensor_id: str
+    sensor_name: str | None = None
     count: int
     items: list[SensorValue]
 

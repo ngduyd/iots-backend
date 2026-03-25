@@ -155,9 +155,16 @@ async def init_db():
                         branch_id INT REFERENCES branches(branch_id),
                         name VARCHAR(50),
                         status VARCHAR(100) DEFAULT 'offline' NOT NULL,
+                        deleted_at TIMESTAMPTZ,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );
+                    """
+                )
+                await connection.execute(
+                    """
+                    ALTER TABLE sensors
+                    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
                     """
                 )
                 await connection.execute(
@@ -198,6 +205,20 @@ async def init_db():
                     CREATE INDEX IF NOT EXISTS idx_user_sessions_expires_at ON user_sessions(expires_at);
                     """
                 )
+                await connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_sensors_active_branch_updated
+                    ON sensors(branch_id, updated_at)
+                    WHERE deleted_at IS NULL;
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_sensors_active_updated
+                    ON sensors(updated_at)
+                    WHERE deleted_at IS NULL;
+                    """
+                )
     except Exception as e:
         print(f"Error initializing the database: {e}")
 
@@ -230,7 +251,7 @@ async def save_message(topic, payload, received_at=None):
 async def update_sensor_status(sensor_id, status):
     try:
         await _execute(
-            "UPDATE sensors SET status = $1, updated_at = NOW() WHERE sensor_id = $2;",
+            "UPDATE sensors SET status = $1, updated_at = NOW() WHERE sensor_id = $2 AND deleted_at IS NULL;",
             status,
             sensor_id,
         )
@@ -240,7 +261,7 @@ async def update_sensor_status(sensor_id, status):
 
 async def get_all_sensor_status() -> dict:
     try:
-        rows = await _fetch("SELECT sensor_id, status FROM sensors;")
+        rows = await _fetch("SELECT sensor_id, status FROM sensors WHERE deleted_at IS NULL;")
         return {row["sensor_id"]: row["status"] for row in rows}
     except Exception as e:
         print(f"Error getting sensor status: {e}")
@@ -256,6 +277,7 @@ async def get_sensors(limit=100, group_id=None):
                 FROM sensors s
                 JOIN branches b ON b.branch_id = s.branch_id
                 WHERE b.group_id = $1
+                  AND s.deleted_at IS NULL
                 ORDER BY s.updated_at DESC
                 LIMIT $2;
                 """,
@@ -267,6 +289,7 @@ async def get_sensors(limit=100, group_id=None):
                 """
             SELECT sensor_id, name, status, updated_at
             FROM sensors
+            WHERE deleted_at IS NULL
             ORDER BY updated_at DESC
             LIMIT $1;
             """,
@@ -285,7 +308,7 @@ async def get_sensor(sensor_id, group_id=None):
                 SELECT s.sensor_id, s.name, s.status, s.updated_at
                 FROM sensors s
                 JOIN branches b ON b.branch_id = s.branch_id
-                WHERE s.sensor_id = $1 AND b.group_id = $2;
+                WHERE s.sensor_id = $1 AND b.group_id = $2 AND s.deleted_at IS NULL;
                 """,
                 sensor_id,
                 group_id,
@@ -295,7 +318,7 @@ async def get_sensor(sensor_id, group_id=None):
             """
             SELECT sensor_id, name, status, updated_at
             FROM sensors
-            WHERE sensor_id = $1;
+            WHERE sensor_id = $1 AND deleted_at IS NULL;
             """,
             sensor_id,
         )
@@ -310,7 +333,7 @@ async def get_sensors_by_branch(branch_id, limit=100):
             """
             SELECT sensor_id, name, status, updated_at
             FROM sensors
-            WHERE branch_id = $1
+            WHERE branch_id = $1 AND deleted_at IS NULL
             ORDER BY updated_at DESC
             LIMIT $2;
             """,
@@ -331,7 +354,7 @@ async def get_sensor_values(sensor_id, limit=100, group_id=None):
                 FROM values v
                 JOIN sensors s ON s.sensor_id = v.sensor_id
                 JOIN branches b ON b.branch_id = s.branch_id
-                WHERE s.sensor_id = $1 AND b.group_id = $2
+                WHERE s.sensor_id = $1 AND b.group_id = $2 AND s.deleted_at IS NULL
                 ORDER BY v.created_at DESC
                 LIMIT $3;
                 """,
@@ -345,7 +368,7 @@ async def get_sensor_values(sensor_id, limit=100, group_id=None):
             SELECT s.sensor_id, v.value, v.created_at
             FROM values v
             JOIN sensors s ON s.sensor_id = v.sensor_id
-            WHERE s.sensor_id = $1
+            WHERE s.sensor_id = $1 AND s.deleted_at IS NULL
             ORDER BY v.created_at DESC
             LIMIT $2;
             """,
@@ -379,11 +402,52 @@ async def add_sensor(sensor_name=None, branch_id=None):
         return None
 
 
+async def update_sensor(sensor_id, sensor_name=None, branch_id=None, delete=False):
+    try:
+        if delete:
+            return await _fetchrow(
+                """
+                UPDATE sensors
+                SET deleted_at = NOW(), updated_at = NOW()
+                WHERE sensor_id = $1 AND deleted_at IS NULL
+                RETURNING sensor_id, name, status, updated_at;
+                """,
+                sensor_id,
+            )
+
+        return await _fetchrow(
+            """
+            UPDATE sensors
+            SET name = $1, branch_id = $2, updated_at = NOW()
+            WHERE sensor_id = $3 AND deleted_at IS NULL
+            RETURNING sensor_id, name, status, updated_at;
+            """,
+            sensor_name,
+            branch_id,
+            sensor_id,
+        )
+    except Exception as e:
+        print(f"Error updating sensor: {e}")
+        return None
+
+
 def _generate_sensor_id():
     ts = int(time.time()).to_bytes(4, "big")
     rand = os.urandom(12)
     return (ts + rand).hex()
 
+async def get_sensor_name(sensor_id):
+    try:
+        row = await _fetchrow(
+            """
+            SELECT name FROM sensors WHERE sensor_id = $1 AND deleted_at IS NULL;
+            """,
+            sensor_id,
+        )
+        return row["name"] if row else None
+    except Exception as e:
+        print(f"Error getting sensor name: {e}")
+        return None
 
 async def create_branch(group_id, name, alert="none"):
     try:
