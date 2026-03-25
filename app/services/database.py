@@ -322,34 +322,34 @@ async def get_sensors_by_branch(branch_id, limit=100):
         return []
 
 
-async def get_sensor_values(sensor_name, limit=100, group_id=None):
+async def get_sensor_values(sensor_id, limit=100, group_id=None):
     try:
         if group_id is not None:
             return await _fetch(
                 """
-                SELECT s.name, v.value, v.created_at
+                SELECT s.sensor_id, v.value, v.created_at
                 FROM values v
                 JOIN sensors s ON s.sensor_id = v.sensor_id
                 JOIN branches b ON b.branch_id = s.branch_id
-                WHERE s.name = $1 AND b.group_id = $2
+                WHERE s.sensor_id = $1 AND b.group_id = $2
                 ORDER BY v.created_at DESC
                 LIMIT $3;
                 """,
-                sensor_name,
+                sensor_id,
                 group_id,
                 limit,
             )
 
         return await _fetch(
             """
-            SELECT s.name, v.value, v.created_at
+            SELECT s.sensor_id, v.value, v.created_at
             FROM values v
             JOIN sensors s ON s.sensor_id = v.sensor_id
-            WHERE s.name = $1
+            WHERE s.sensor_id = $1
             ORDER BY v.created_at DESC
             LIMIT $2;
             """,
-            sensor_name,
+            sensor_id,
             limit,
         )
     except Exception as e:

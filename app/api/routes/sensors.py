@@ -62,9 +62,9 @@ async def get_sensor_by_id(
     )
 
 
-@router.get("/{sensor_name}/values", response_model=ResponseMessage)
+@router.get("/{sensor_id}/values", response_model=ResponseMessage)
 async def list_sensor_values(
-    sensor_name: str,
+    sensor_id: str,
     limit: int = Query(default=100, ge=1, le=1000),
     current_user: dict = Depends(get_current_user_record),
 ):
@@ -72,7 +72,7 @@ async def list_sensor_values(
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
     rows = await get_sensor_values(
-        sensor_name=sensor_name,
+        sensor_id=sensor_id,
         limit=limit,
         group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
     )
@@ -86,7 +86,7 @@ async def list_sensor_values(
     return ResponseMessage(
         code=200,
         message="Sensor values retrieved successfully",
-        data=SensorValueListResponse(sensor=sensor_name, count=len(items), items=items),
+        data=SensorValueListResponse(sensor=sensor_id, count=len(items), items=items),
     )
 
 @router.post("", response_model=ResponseMessage)
