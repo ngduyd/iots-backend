@@ -26,6 +26,28 @@ class SensorCreateRequest(BaseModel):
     branch_id: int
 
 
+class CameraCreateRequest(BaseModel):
+    name: str | None = None
+    branch_id: int
+    ip_address: str | None = None
+    username: str | None = None
+    password: str | None = None
+
+
+class CameraResponse(BaseModel):
+    camera_id: int
+    branch_id: int | None = None
+    name: str | None = None
+    ip_address: str | None = None
+    username: str | None = None
+    created_at: datetime
+
+
+class CameraListResponse(BaseModel):
+    count: int
+    items: list[CameraResponse]
+
+
 class GroupCreateRequest(BaseModel):
     name: str
 

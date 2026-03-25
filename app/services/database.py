@@ -465,6 +465,123 @@ async def get_sensor_name(sensor_id):
         print(f"Error getting sensor name: {e}")
         return None
 
+
+async def get_cameras(limit=100, group_id=None):
+    try:
+        if group_id is not None:
+            return await _fetch(
+                """
+                SELECT c.camera_id, c.branch_id, c.name, c.ip_address, c.username, c.created_at
+                FROM cameras c
+                JOIN branches b ON b.branch_id = c.branch_id
+                WHERE b.group_id = $1
+                ORDER BY c.camera_id DESC
+                LIMIT $2;
+                """,
+                group_id,
+                limit,
+            )
+
+        return await _fetch(
+            """
+            SELECT camera_id, branch_id, name, ip_address, username, created_at
+            FROM cameras
+            ORDER BY camera_id DESC
+            LIMIT $1;
+            """,
+            limit,
+        )
+    except Exception as e:
+        print(f"Error getting cameras: {e}")
+        return []
+
+
+async def get_camera(camera_id, group_id=None):
+    try:
+        if group_id is not None:
+            return await _fetchrow(
+                """
+                SELECT c.camera_id, c.branch_id, c.name, c.ip_address, c.username, c.created_at
+                FROM cameras c
+                JOIN branches b ON b.branch_id = c.branch_id
+                WHERE c.camera_id = $1 AND b.group_id = $2;
+                """,
+                camera_id,
+                group_id,
+            )
+
+        return await _fetchrow(
+            """
+            SELECT camera_id, branch_id, name, ip_address, username, created_at
+            FROM cameras
+            WHERE camera_id = $1;
+            """,
+            camera_id,
+        )
+    except Exception as e:
+        print(f"Error getting camera: {e}")
+        return None
+
+
+async def add_camera(name=None, branch_id=None, ip_address=None, username=None, password=None):
+    if branch_id is None:
+        print("branch_id is required")
+        return None
+
+    try:
+        return await _fetchrow(
+            """
+            INSERT INTO cameras (branch_id, name, ip_address, username, password)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING camera_id, branch_id, name, ip_address, username, created_at;
+            """,
+            branch_id,
+            name,
+            ip_address,
+            username,
+            password,
+        )
+    except Exception as e:
+        print(f"Error adding camera: {e}")
+        return None
+
+
+async def update_camera(camera_id, name=None, branch_id=None, ip_address=None, username=None, password=None):
+    try:
+        return await _fetchrow(
+            """
+            UPDATE cameras
+            SET branch_id = $1, name = $2, ip_address = $3, username = $4, password = $5
+            WHERE camera_id = $6
+            RETURNING camera_id, branch_id, name, ip_address, username, created_at;
+            """,
+            branch_id,
+            name,
+            ip_address,
+            username,
+            password,
+            camera_id,
+        )
+    except Exception as e:
+        print(f"Error updating camera: {e}")
+        return None
+
+
+async def delete_camera(camera_id):
+    try:
+        row = await _fetchrow(
+            """
+            DELETE FROM cameras
+            WHERE camera_id = $1
+            RETURNING camera_id;
+            """,
+            camera_id,
+        )
+        return row is not None
+    except Exception as e:
+        print(f"Error deleting camera: {e}")
+        return False
+
 async def create_branch(group_id, name, alert="none"):
     try:
         return await _fetchrow(
