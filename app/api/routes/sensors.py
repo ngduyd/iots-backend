@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.schemas import SensorCreateRequest, SensorListResponse, SensorStatus, SensorValue, SensorValueListResponse, ResponseMessage
@@ -66,15 +68,22 @@ async def get_sensor_by_id(
 async def list_sensor_values(
     sensor_id: str,
     limit: int = Query(default=100, ge=1, le=1000),
+    from_time: datetime | None = Query(default=None),
+    to_time: datetime | None = Query(default=None),
     current_user: dict = Depends(get_current_user_record),
 ):
     if not is_superadmin(current_user) and current_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
+    if from_time is not None and to_time is not None and from_time > to_time:
+        raise HTTPException(status_code=400, detail="from_time must be less than or equal to to_time")
+
     rows = await get_sensor_values(
         sensor_id=sensor_id,
         limit=limit,
         group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
+        from_time=from_time,
+        to_time=to_time,
     )
 
     sensor_name = await get_sensor_name(sensor_id)

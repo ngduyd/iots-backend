@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -345,35 +346,50 @@ async def get_sensors_by_branch(branch_id, limit=100):
         return []
 
 
-async def get_sensor_values(sensor_id, limit=100, group_id=None):
+async def get_sensor_values(sensor_id, limit=100, group_id=None, from_time: datetime | None = None, to_time: datetime | None = None):
     try:
+        where_clauses = ["s.sensor_id = $1", "s.deleted_at IS NULL"]
+        params = [sensor_id]
+
+        if group_id is not None:
+            where_clauses.append(f"b.group_id = ${len(params) + 1}")
+            params.append(group_id)
+
+        if from_time is not None:
+            where_clauses.append(f"v.created_at >= ${len(params) + 1}")
+            params.append(from_time)
+
+        if to_time is not None:
+            where_clauses.append(f"v.created_at <= ${len(params) + 1}")
+            params.append(to_time)
+
+        limit_placeholder = f"${len(params) + 1}"
+        params.append(limit)
+
         if group_id is not None:
             return await _fetch(
-                """
+                f"""
                 SELECT s.sensor_id, v.value, v.created_at
                 FROM values v
                 JOIN sensors s ON s.sensor_id = v.sensor_id
                 JOIN branches b ON b.branch_id = s.branch_id
-                WHERE s.sensor_id = $1 AND b.group_id = $2 AND s.deleted_at IS NULL
+                WHERE {' AND '.join(where_clauses)}
                 ORDER BY v.created_at DESC
-                LIMIT $3;
+                LIMIT {limit_placeholder};
                 """,
-                sensor_id,
-                group_id,
-                limit,
+                *params,
             )
 
         return await _fetch(
-            """
+            f"""
             SELECT s.sensor_id, v.value, v.created_at
             FROM values v
             JOIN sensors s ON s.sensor_id = v.sensor_id
-            WHERE s.sensor_id = $1 AND s.deleted_at IS NULL
+            WHERE {' AND '.join(where_clauses)}
             ORDER BY v.created_at DESC
-            LIMIT $2;
+            LIMIT {limit_placeholder};
             """,
-            sensor_id,
-            limit,
+            *params,
         )
     except Exception as e:
         print(f"Error getting sensor values: {e}")
