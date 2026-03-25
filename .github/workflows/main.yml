@@ -1,13 +1,11 @@
 name: Python Deployment
 
 on:
-#Tiến hành gọi jobs khi nhánh main được merge hoặc pull
   push:
     branches: [main]
 
 jobs:
   deploy:
-  #muốn workflows chạy trên máy ảo (OS) gì
     runs-on: ubuntu-latest
     steps:
     - name: Deploy using ssh
@@ -41,6 +39,14 @@ jobs:
                 sleep 1
               fi
             fi
+
+            PORT_PID=$(ss -ltnp 2>/dev/null | awk '/:8000 / {gsub(/.*pid=|,.*/, "", $NF); print $NF; exit}')
+            if [ -n "$PORT_PID" ] && kill -0 "$PORT_PID" >/dev/null 2>&1; then
+              echo "Killing process using port 8000 (PID $PORT_PID)"
+              kill "$PORT_PID"
+              sleep 1
+            fi
+
             nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > /root/iots-backend/app.log 2>&1 &
             echo $! > "$PID_FILE"
             sleep 2
