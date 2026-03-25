@@ -19,10 +19,8 @@ def on_message(client, userdata, msg):
     queue = userdata.get("queue") if userdata else None
     received_at = datetime.now(timezone.utc)
 
-    sensor_id = msg.topic.split("/")[0]
+    sensor_id = msg.topic.split("/sensors/")[1] if "/sensors/" in msg.topic else None
     payload = msg.payload.decode()
-    #Hardcode sensor_id for testing, replace with actual sensor_id lookup based on topic for quick testing
-    sensor_id = "69b7c7015134a24965d7cfdae2a6f698"
 
     manager.record_sensor_activity(sensor_id, loop)
 
