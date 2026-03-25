@@ -16,6 +16,7 @@ class LoginResponse(BaseModel):
 class SensorStatus(BaseModel):
     sensor_id: str | None = None
     name: str | None = None
+    branch_id: int | None = None
     status: str | None = None
     updated_at: datetime | None = None
 

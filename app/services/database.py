@@ -306,7 +306,7 @@ async def get_sensor(sensor_id, group_id=None):
         if group_id is not None:
             return await _fetchrow(
                 """
-                SELECT s.sensor_id, s.name, s.status, s.updated_at
+                SELECT s.sensor_id, s.name, s.branch_id, s.status, s.updated_at
                 FROM sensors s
                 JOIN branches b ON b.branch_id = s.branch_id
                 WHERE s.sensor_id = $1 AND b.group_id = $2 AND s.deleted_at IS NULL;
@@ -317,7 +317,7 @@ async def get_sensor(sensor_id, group_id=None):
 
         return await _fetchrow(
             """
-            SELECT sensor_id, name, status, updated_at
+            SELECT sensor_id, name, branch_id, status, updated_at
             FROM sensors
             WHERE sensor_id = $1 AND deleted_at IS NULL;
             """,

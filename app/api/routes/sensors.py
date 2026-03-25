@@ -58,6 +58,7 @@ async def get_sensor_by_id(
         data=SensorStatus(
             sensor_id=row.get("sensor_id"),
             name=row.get("name"),
+            branch_id=row.get("branch_id"),
             status=row.get("status"),
             updated_at=row.get("updated_at"),
         ),
@@ -126,6 +127,7 @@ async def add_sensor(sensor: SensorCreateRequest, admin_user: dict = Depends(req
         data=SensorStatus(
             sensor_id=row.get("sensor_id"),
             name=row.get("name"),
+            branch_id=row.get("branch_id"),
             status=row.get("status"),
             updated_at=row.get("updated_at"),
         ),
@@ -164,6 +166,7 @@ async def update_sensor(sensor_id: str, sensor: SensorCreateRequest, admin_user:
         data=SensorStatus(
             sensor_id=row.get("sensor_id"),
             name=row.get("name"),
+            branch_id=row.get("branch_id"),
             status=row.get("status"),
             updated_at=row.get("updated_at"),
         ),
