@@ -32,6 +32,7 @@ async def verify_stream(
     id: str = Form(alias="id"),
     secret: str = Form(default=None),
 ):
+    print(f"Received verify stream request: id={id}, secret={secret}")
     row = await verify_camera_stream_db(camera_id=id, secret=secret)
     print(f"verify_stream: id={id}, secret={secret}, row={row}")
     if not row:
