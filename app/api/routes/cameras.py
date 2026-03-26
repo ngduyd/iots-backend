@@ -14,6 +14,7 @@ from app.services.database import (
     get_branch,
     get_camera as get_camera_db,
     get_cameras as get_cameras_db,
+    reset_camera_secret as reset_camera_secret_db,
     update_camera as update_camera_db,
     verify_camera_stream as verify_camera_stream_db,
 )
@@ -54,8 +55,7 @@ async def list_cameras(
             camera_id=row.get("camera_id"),
             branch_id=row.get("branch_id"),
             name=row.get("name"),
-            ip_address=row.get("ip_address"),
-            username=row.get("username"),
+            secret=row.get("secret"),
             created_at=row.get("created_at"),
         )
         for row in rows
@@ -90,8 +90,7 @@ async def get_camera(
             camera_id=row.get("camera_id"),
             branch_id=row.get("branch_id"),
             name=row.get("name"),
-            ip_address=row.get("ip_address"),
-            username=row.get("username"),
+            secret=row.get("secret"),
             created_at=row.get("created_at"),
         ),
     )
@@ -112,9 +111,6 @@ async def add_camera(camera: CameraCreateRequest, admin_user: dict = Depends(req
     row = await create_camera_db(
         name=camera.name,
         branch_id=camera.branch_id,
-        ip_address=camera.ip_address,
-        username=camera.username,
-        password=camera.password,
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot create camera")
@@ -126,8 +122,7 @@ async def add_camera(camera: CameraCreateRequest, admin_user: dict = Depends(req
             camera_id=row.get("camera_id"),
             branch_id=row.get("branch_id"),
             name=row.get("name"),
-            ip_address=row.get("ip_address"),
-            username=row.get("username"),
+            secret=row.get("secret"),
             created_at=row.get("created_at"),
         ),
     )
@@ -160,9 +155,6 @@ async def update_camera(
         camera_id=camera_id,
         name=camera.name,
         branch_id=camera.branch_id,
-        ip_address=camera.ip_address,
-        username=camera.username,
-        password=camera.password,
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot update camera")
@@ -174,8 +166,39 @@ async def update_camera(
             camera_id=row.get("camera_id"),
             branch_id=row.get("branch_id"),
             name=row.get("name"),
-            ip_address=row.get("ip_address"),
-            username=row.get("username"),
+            secret=row.get("secret"),
+            created_at=row.get("created_at"),
+        ),
+    )
+
+
+@router.post("/{camera_id}/reset-secret", response_model=ResponseMessage)
+async def reset_camera_secret(
+    camera_id: str,
+    admin_user: dict = Depends(require_admin),
+):
+    if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
+        raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
+
+    existing_camera = await get_camera_db(
+        camera_id=camera_id,
+        group_id=None if is_superadmin(admin_user) else admin_user.get("group_id"),
+    )
+    if not existing_camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+
+    row = await reset_camera_secret_db(camera_id=camera_id)
+    if not row:
+        raise HTTPException(status_code=400, detail="Cannot reset camera secret")
+
+    return ResponseMessage(
+        code=200,
+        message="Camera secret reset successfully",
+        data=CameraResponse(
+            camera_id=row.get("camera_id"),
+            branch_id=row.get("branch_id"),
+            name=row.get("name"),
+            secret=row.get("secret"),
             created_at=row.get("created_at"),
         ),
     )

@@ -450,6 +450,16 @@ def _generate_sensor_id():
     rand = os.urandom(12)
     return (ts + rand).hex()
 
+
+def _generate_camera_id():
+    ts = int(time.time()).to_bytes(4, "big")
+    rand = os.urandom(12)
+    return (ts + rand).hex()
+
+
+def _generate_camera_secret():
+    return os.urandom(32).hex()
+
 async def get_sensor_name(sensor_id):
     try:
         row = await _fetchrow(
@@ -469,7 +479,7 @@ async def get_cameras(limit=100, group_id=None):
         if group_id is not None:
             return await _fetch(
                 """
-                SELECT c.camera_id, c.branch_id, c.name, c.ip_address, c.username, c.created_at
+                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.created_at
                 FROM cameras c
                 JOIN branches b ON b.branch_id = c.branch_id
                 WHERE b.group_id = $1
@@ -482,7 +492,7 @@ async def get_cameras(limit=100, group_id=None):
 
         return await _fetch(
             """
-            SELECT camera_id, branch_id, name, ip_address, username, created_at
+            SELECT camera_id, branch_id, name, secret, created_at
             FROM cameras
             ORDER BY camera_id DESC
             LIMIT $1;
@@ -499,7 +509,7 @@ async def get_camera(camera_id, group_id=None):
         if group_id is not None:
             return await _fetchrow(
                 """
-                SELECT c.camera_id, c.branch_id, c.name, c.ip_address, c.username, c.created_at
+                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.created_at
                 FROM cameras c
                 JOIN branches b ON b.branch_id = c.branch_id
                 WHERE c.camera_id = $1 AND b.group_id = $2;
@@ -510,7 +520,7 @@ async def get_camera(camera_id, group_id=None):
 
         return await _fetchrow(
             """
-            SELECT camera_id, branch_id, name, ip_address, username, created_at
+            SELECT camera_id, branch_id, name, secret, created_at
             FROM cameras
             WHERE camera_id = $1;
             """,
@@ -554,47 +564,63 @@ async def verify_camera_stream(camera_id, secret):
         return None
 
 
-async def add_camera(name=None, branch_id=None, ip_address=None, username=None, password=None):
+async def add_camera(name=None, branch_id=None):
     if branch_id is None:
         print("branch_id is required")
         return None
 
     try:
+        camera_id = _generate_camera_id()
+        secret = _generate_camera_secret()
         return await _fetchrow(
             """
-            INSERT INTO cameras (branch_id, name, ip_address, username, password)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING camera_id, branch_id, name, ip_address, username, created_at;
+            INSERT INTO cameras (camera_id, branch_id, name, secret)
+            VALUES ($1, $2, $3, $4)
+            RETURNING camera_id, branch_id, name, secret, created_at;
             """,
+            camera_id,
             branch_id,
             name,
-            ip_address,
-            username,
-            password,
+            secret,
         )
     except Exception as e:
         print(f"Error adding camera: {e}")
         return None
 
 
-async def update_camera(camera_id, name=None, branch_id=None, ip_address=None, username=None, password=None):
+async def update_camera(camera_id, name=None, branch_id=None):
     try:
         return await _fetchrow(
             """
             UPDATE cameras
-            SET branch_id = $1, name = $2, ip_address = $3, username = $4, password = $5
-            WHERE camera_id = $6
-            RETURNING camera_id, branch_id, name, ip_address, username, created_at;
+            SET branch_id = $1, name = $2
+            WHERE camera_id = $3
+            RETURNING camera_id, branch_id, name, secret, created_at;
             """,
             branch_id,
             name,
-            ip_address,
-            username,
-            password,
             camera_id,
         )
     except Exception as e:
         print(f"Error updating camera: {e}")
+        return None
+
+
+async def reset_camera_secret(camera_id):
+    try:
+        new_secret = _generate_camera_secret()
+        return await _fetchrow(
+            """
+            UPDATE cameras
+            SET secret = $1
+            WHERE camera_id = $2
+            RETURNING camera_id, branch_id, name, secret, created_at;
+            """,
+            new_secret,
+            camera_id,
+        )
+    except Exception as e:
+        print(f"Error resetting camera secret: {e}")
         return None
 
 

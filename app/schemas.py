@@ -29,9 +29,6 @@ class SensorCreateRequest(BaseModel):
 class CameraCreateRequest(BaseModel):
     name: str | None = None
     branch_id: int
-    ip_address: str | None = None
-    username: str | None = None
-    password: str | None = None
 
 
 class CameraVerifyStreamRequest(BaseModel):
@@ -43,8 +40,7 @@ class CameraResponse(BaseModel):
     camera_id: str
     branch_id: int | None = None
     name: str | None = None
-    ip_address: str | None = None
-    username: str | None = None
+    secret: str | None = None
     created_at: datetime
 
 
