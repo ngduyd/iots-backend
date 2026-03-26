@@ -29,12 +29,10 @@ router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 
 @router.post("/verify-stream", response_model=ResponseMessage)
 async def verify_stream(
-    id: str = Form(alias="id"),
+    id: str = Form(alias="name"),
     secret: str = Form(default=None),
 ):
-    print(f"Received verify stream request: id={id}, secret={secret}")
     row = await verify_camera_stream_db(camera_id=id, secret=secret)
-    print(f"verify_stream: id={id}, secret={secret}, row={row}")
     if not row:
         raise HTTPException(status_code=403, detail="Invalid stream credentials")
 
