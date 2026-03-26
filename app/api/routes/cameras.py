@@ -22,7 +22,7 @@ from app.services.database import (
     verify_camera_stream as verify_camera_stream_db,
 )
 
-from app.core.config import SERVER_HOST_NAME
+from app.core import config
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 
@@ -30,6 +30,7 @@ router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 @router.post("/verify-stream", response_model=ResponseMessage)
 async def verify_stream(payload: CameraVerifyStreamRequest):
     row = await verify_camera_stream_db(camera_id=payload.id, secret=payload.secret)
+    print(f"verify_stream: camera_id={payload.id}, secret={payload.secret}, result={row}")
     if not row:
         raise HTTPException(status_code=403, detail="Invalid stream credentials")
 
@@ -67,7 +68,7 @@ async def request_camera_access(
         raise HTTPException(status_code=400, detail="Cannot create camera access token")
 
     token = access.get("access_token")
-    stream_url = f"http://{SERVER_HOST_NAME}/hls/{camera_id}.m3u8?token={token}"
+    stream_url = f"http://{config.SERVER_HOST_NAME}/hls/{camera_id}.m3u8?token={token}"
 
     return ResponseMessage(
         code=200,
