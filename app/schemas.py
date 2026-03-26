@@ -34,8 +34,13 @@ class CameraCreateRequest(BaseModel):
     password: str | None = None
 
 
+class CameraVerifyStreamRequest(BaseModel):
+    id: str
+    secret: str
+
+
 class CameraResponse(BaseModel):
-    camera_id: int
+    camera_id: str
     branch_id: int | None = None
     name: str | None = None
     ip_address: str | None = None

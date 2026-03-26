@@ -181,12 +181,10 @@ async def init_db():
                 await connection.execute(
                     """
                     CREATE TABLE IF NOT EXISTS cameras (
-                        camera_id SERIAL PRIMARY KEY,
+                        camera_id VARCHAR(32) PRIMARY KEY,
                         branch_id INT REFERENCES branches(branch_id),
                         name VARCHAR(50),
-                        ip_address VARCHAR(50),
-                        username VARCHAR(50),
-                        password VARCHAR(50),
+                        secret VARCHAR(64),
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );
                     """
@@ -520,6 +518,39 @@ async def get_camera(camera_id, group_id=None):
         )
     except Exception as e:
         print(f"Error getting camera: {e}")
+        return None
+
+
+async def verify_camera_stream(camera_id, secret):
+    try:
+        row = await _fetchrow(
+            """
+            SELECT camera_id, branch_id, name
+            FROM cameras
+            WHERE camera_id = $1 AND secret = $2;
+            """,
+            camera_id,
+            secret,
+        )
+        if row is not None:
+            return row
+    except Exception as e:
+        # Backward-compatibility: older schema may still use password.
+        if 'column "secret" does not exist' not in str(e):
+            print(f"Error verifying camera stream with secret: {e}")
+
+    try:
+        return await _fetchrow(
+            """
+            SELECT camera_id, branch_id, name
+            FROM cameras
+            WHERE camera_id = $1 AND password = $2;
+            """,
+            camera_id,
+            secret,
+        )
+    except Exception as e:
+        print(f"Error verifying camera stream with password fallback: {e}")
         return None
 
 

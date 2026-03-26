@@ -1,6 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.schemas import CameraCreateRequest, CameraListResponse, CameraResponse, ResponseMessage
+from app.schemas import (
+    CameraCreateRequest,
+    CameraListResponse,
+    CameraResponse,
+    CameraVerifyStreamRequest,
+    ResponseMessage,
+)
 from app.security import get_current_user_record, is_superadmin, require_admin
 from app.services.database import (
     add_camera as create_camera_db,
@@ -9,9 +15,25 @@ from app.services.database import (
     get_camera as get_camera_db,
     get_cameras as get_cameras_db,
     update_camera as update_camera_db,
+    verify_camera_stream as verify_camera_stream_db,
 )
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
+
+
+@router.post("/verify-stream", response_model=ResponseMessage)
+async def verify_stream(payload: CameraVerifyStreamRequest):
+    row = await verify_camera_stream_db(camera_id=payload.id, secret=payload.secret)
+    if not row:
+        return ResponseMessage(
+            code=403,
+            message="Invalid stream credentials",
+        )
+
+    return ResponseMessage(
+        code=200,
+        message="Stream credentials verified",
+    )
 
 
 @router.get("", response_model=ResponseMessage)
@@ -48,7 +70,7 @@ async def list_cameras(
 
 @router.get("/{camera_id}", response_model=ResponseMessage)
 async def get_camera(
-    camera_id: int,
+    camera_id: str,
     current_user: dict = Depends(get_current_user_record),
 ):
     if not is_superadmin(current_user) and current_user.get("group_id") is None:
@@ -113,7 +135,7 @@ async def add_camera(camera: CameraCreateRequest, admin_user: dict = Depends(req
 
 @router.put("/{camera_id}", response_model=ResponseMessage)
 async def update_camera(
-    camera_id: int,
+    camera_id: str,
     camera: CameraCreateRequest,
     admin_user: dict = Depends(require_admin),
 ):
@@ -160,7 +182,7 @@ async def update_camera(
 
 
 @router.delete("/{camera_id}", response_model=ResponseMessage)
-async def delete_camera(camera_id: int, admin_user: dict = Depends(require_admin)):
+async def delete_camera(camera_id: str, admin_user: dict = Depends(require_admin)):
     if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
 
