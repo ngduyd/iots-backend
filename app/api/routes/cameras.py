@@ -26,10 +26,7 @@ router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 async def verify_stream(payload: CameraVerifyStreamRequest):
     row = await verify_camera_stream_db(camera_id=payload.id, secret=payload.secret)
     if not row:
-        return ResponseMessage(
-            code=403,
-            message="Invalid stream credentials",
-        )
+        raise HTTPException(status_code=403, detail="Invalid stream credentials")
 
     return ResponseMessage(
         code=200,
