@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Form, Header
+from typing import Optional
 
 from app.schemas import (
     CameraCreateRequest,
@@ -84,27 +85,25 @@ async def request_camera_access(
     )
 
 
-@router.get("/verify-access", response_model=ResponseMessage)
+@router.get("/verify-access")
 async def verify_camera_access(
-    token: str = Header(..., alias="X-Stream-Token"),
+    token: Optional[str] = Header(default=None, alias="X-Stream-Token"),
+    original_uri: Optional[str] = Header(default=None, alias="X-Original-URI")
 ):
-    """Verify camera access using only the access token."""
+    if original_uri and original_uri.endswith(".ts"):
+        return {"status": "TS chunk allowed"}
+
     if not token:
-        raise HTTPException(status_code=400, detail="Access token is required")
+        raise HTTPException(status_code=403, detail="Access token is required")
 
     access = await verify_camera_access_by_token_db(access_token=token)
     if not access:
         raise HTTPException(status_code=403, detail="Invalid or expired access token")
 
-    return ResponseMessage(
-        code=200,
-        message="Camera access verified",
-        data={
-            "camera_id": access.get("camera_id"),
-            "expires_at": access.get("expires_at"),
-            "status": access.get("status"),
-        },
-    )
+    return {
+        "code": 200,
+        "message": "Camera access verified"
+    }
 
 
 @router.get("", response_model=ResponseMessage)
