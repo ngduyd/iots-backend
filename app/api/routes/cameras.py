@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Form
 
 from app.schemas import (
     CameraCreateRequest,
@@ -28,9 +28,12 @@ router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 
 
 @router.post("/verify-stream", response_model=ResponseMessage)
-async def verify_stream(payload: CameraVerifyStreamRequest):
-    row = await verify_camera_stream_db(camera_id=payload.id, secret=payload.secret)
-    print(f"verify_stream: camera_id={payload.id}, secret={payload.secret}, result={row}")
+async def verify_stream(
+    id: str = Form(alias="id"),
+    secret: str = Form(default=None),
+):
+    row = await verify_camera_stream_db(camera_id=id, secret=secret)
+    print(f"verify_stream: id={id}, secret={secret}, row={row}")
     if not row:
         raise HTTPException(status_code=403, detail="Invalid stream credentials")
 
