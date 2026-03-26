@@ -1,12 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.schemas import BranchCreateByAdminRequest, BranchCreateRequest, ResponseMessage, SensorListResponse, SensorStatus
+from app.schemas import (
+    BranchCreateByAdminRequest,
+    BranchCreateRequest,
+    CameraListResponse,
+    CameraResponse,
+    ResponseMessage,
+    SensorListResponse,
+    SensorStatus,
+)
 from app.security import get_current_user_record, is_superadmin, require_admin
 from app.services.database import (
     create_branch as create_branch_db,
     delete_branch as delete_branch_db,
     get_branch as get_branch_db,
     get_branches as get_branches_db,
+    get_cameras_by_branch as get_cameras_by_branch_db,
     get_sensors_by_branch as get_sensors_by_branch_db,
     update_branch as update_branch_db,
 )
@@ -79,6 +88,39 @@ async def list_branch_sensors(
         code=200,
         message="Branch sensors retrieved successfully",
         data=SensorListResponse(count=len(items), items=items),
+    )
+
+@router.get("/{branch_id}/cameras", response_model=ResponseMessage)
+async def list_branch_cameras(
+    branch_id: int,
+    limit: int = Query(default=100, ge=1, le=1000),
+    current_user: dict = Depends(get_current_user_record),
+):
+    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+        raise HTTPException(status_code=403, detail="User is not assigned to any group")
+
+    branch = await get_branch_db(
+        branch_id,
+        None if is_superadmin(current_user) else current_user.get("group_id"),
+    )
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    
+    rows = await get_cameras_by_branch_db(branch_id=branch_id, limit=limit)
+    items = [
+        CameraResponse(
+            camera_id=row.get("camera_id"),
+            branch_id=row.get("branch_id"),
+            name=row.get("name"),
+            secret=row.get("secret"),
+            created_at=row.get("created_at"),
+        )
+        for row in rows
+    ]
+    return ResponseMessage(
+        code=200,
+        message="Branch cameras retrieved successfully",
+        data=CameraListResponse(count=len(items), items=items),
     )
 
 

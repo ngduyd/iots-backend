@@ -8,14 +8,17 @@ from app.schemas import (
     ResponseMessage,
 )
 from app.security import get_current_user_record, is_superadmin, require_admin
+from app.core import config
 from app.services.database import (
     add_camera as create_camera_db,
+    create_camera_access_request as create_camera_access_request_db,
     delete_camera as delete_camera_db,
     get_branch,
     get_camera as get_camera_db,
     get_cameras as get_cameras_db,
     reset_camera_secret as reset_camera_secret_db,
     update_camera as update_camera_db,
+    verify_camera_access_request as verify_camera_access_request_db,
     verify_camera_stream as verify_camera_stream_db,
 )
 
@@ -31,6 +34,87 @@ async def verify_stream(payload: CameraVerifyStreamRequest):
     return ResponseMessage(
         code=200,
         message="Stream credentials verified",
+    )
+
+
+@router.get("/request-access", response_model=ResponseMessage)
+async def request_camera_access(
+    camera_id: str,
+    current_user: dict = Depends(get_current_user_record),
+):
+    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+        raise HTTPException(status_code=403, detail="User is not assigned to any group")
+
+    camera = await get_camera_db(
+        camera_id=camera_id,
+        group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
+    )
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+
+    user_id = current_user.get("user_id")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user session")
+
+    access = await create_camera_access_request_db(
+        camera_id=camera_id,
+        user_id=user_id,
+        ttl_seconds=config.CAMERA_ACCESS_TOKEN_TTL_SECONDS,
+    )
+    if not access:
+        raise HTTPException(status_code=400, detail="Cannot create camera access token")
+
+    token = access.get("access_token")
+    stream_url = f"/hls/{camera_id}.m3u8?token={token}"
+
+    return ResponseMessage(
+        code=200,
+        message="Camera access token created",
+        data={
+            "camera_id": camera_id,
+            "access_token": token,
+            "expires_at": access.get("expires_at"),
+            "stream_url": stream_url,
+        },
+    )
+
+
+@router.get("/verify-access", response_model=ResponseMessage)
+async def verify_camera_access(
+    camera_id: str,
+    token: str,
+    current_user: dict = Depends(get_current_user_record),
+):
+    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+        raise HTTPException(status_code=403, detail="User is not assigned to any group")
+
+    camera = await get_camera_db(
+        camera_id=camera_id,
+        group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
+    )
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+
+    user_id = current_user.get("user_id")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid user session")
+
+    access = await verify_camera_access_request_db(
+        camera_id=camera_id,
+        access_token=token,
+        user_id=user_id,
+    )
+    if not access:
+        raise HTTPException(status_code=403, detail="Invalid or expired access token")
+
+    return ResponseMessage(
+        code=200,
+        message="Camera access verified",
+        data={
+            "camera_id": camera_id,
+            "expires_at": access.get("expires_at"),
+            "status": access.get("status"),
+        },
     )
 
 

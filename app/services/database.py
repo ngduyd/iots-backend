@@ -191,6 +191,20 @@ async def init_db():
                 )
                 await connection.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS camera_access_requests (
+                        request_id SERIAL PRIMARY KEY,
+                        camera_id VARCHAR(32) REFERENCES cameras(camera_id) ON DELETE CASCADE,
+                        user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
+                        status VARCHAR(20) DEFAULT 'pending' NOT NULL,
+                        access_token VARCHAR(128),
+                        expires_at TIMESTAMPTZ,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
                     CREATE INDEX IF NOT EXISTS idx_sensor_time ON values(sensor_id, created_at);
                     """
                 )
@@ -216,6 +230,12 @@ async def init_db():
                     CREATE INDEX IF NOT EXISTS idx_sensors_active_updated
                     ON sensors(updated_at)
                     WHERE deleted_at IS NULL;
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_camera_access_requests_token
+                    ON camera_access_requests(access_token);
                     """
                 )
     except Exception as e:
@@ -341,6 +361,24 @@ async def get_sensors_by_branch(branch_id, limit=100):
         )
     except Exception as e:
         print(f"Error getting sensors by branch: {e}")
+        return []
+
+
+async def get_cameras_by_branch(branch_id, limit=100):
+    try:
+        return await _fetch(
+            """
+            SELECT camera_id, branch_id, name, secret, created_at
+            FROM cameras
+            WHERE branch_id = $1
+            ORDER BY created_at DESC
+            LIMIT $2;
+            """,
+            branch_id,
+            limit,
+        )
+    except Exception as e:
+        print(f"Error getting cameras by branch: {e}")
         return []
 
 
@@ -528,6 +566,48 @@ async def get_camera(camera_id, group_id=None):
         )
     except Exception as e:
         print(f"Error getting camera: {e}")
+        return None
+
+
+async def create_camera_access_request(camera_id, user_id, ttl_seconds=60):
+    try:
+        access_token = os.urandom(24).hex()
+        return await _fetchrow(
+            """
+            INSERT INTO camera_access_requests (camera_id, user_id, access_token, status, expires_at, updated_at)
+            VALUES ($1, $2, $3, 'approved', NOW() + ($4 * INTERVAL '1 second'), NOW())
+            RETURNING request_id, camera_id, user_id, access_token, status, expires_at, created_at;
+            """,
+            camera_id,
+            user_id,
+            access_token,
+            ttl_seconds,
+        )
+    except Exception as e:
+        print(f"Error creating camera access request: {e}")
+        return None
+
+
+async def verify_camera_access_request(camera_id, access_token, user_id):
+    try:
+        return await _fetchrow(
+            """
+            SELECT request_id, camera_id, user_id, access_token, status, expires_at, created_at
+            FROM camera_access_requests
+            WHERE camera_id = $1
+              AND access_token = $2
+              AND user_id = $3
+              AND status = 'approved'
+              AND expires_at > NOW()
+            ORDER BY request_id DESC
+            LIMIT 1;
+            """,
+            camera_id,
+            access_token,
+            user_id,
+        )
+    except Exception as e:
+        print(f"Error verifying camera access request: {e}")
         return None
 
 

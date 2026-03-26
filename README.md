@@ -81,6 +81,16 @@ Python backend service that ingests MQTT sensor messages, stores data in Postgre
 - `PUT /api/sensors/{sensor_id}`
 - `DELETE /api/sensors/{sensor_id}` (soft delete)
 
+### Cameras
+
+- `POST /api/cameras/verify-stream` (public, verifies `id` + `secret`)
+- `GET /api/cameras`
+- `GET /api/cameras/{camera_id}`
+- `POST /api/cameras` (admin)
+- `PUT /api/cameras/{camera_id}` (admin)
+- `POST /api/cameras/{camera_id}/reset-secret` (admin)
+- `DELETE /api/cameras/{camera_id}` (admin)
+
 ## Environment Variables
 
 ### MQTT
