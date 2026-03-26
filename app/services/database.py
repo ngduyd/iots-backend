@@ -588,6 +588,33 @@ async def create_camera_access_request(camera_id, user_id, ttl_seconds=60):
         return None
 
 
+async def verify_camera_access_request_by_token(access_token):
+    """Verify camera access request by token only, consuming the token."""
+    try:
+        return await _fetchrow(
+            """
+                        WITH candidate AS (
+                                SELECT request_id
+                                FROM camera_access_requests
+                                WHERE access_token = $1
+                                    AND status = 'approved'
+                                    AND expires_at > NOW()
+                                ORDER BY request_id DESC
+                                LIMIT 1
+                        )
+                        UPDATE camera_access_requests car
+                        SET status = 'used', updated_at = NOW()
+                        FROM candidate
+                        WHERE car.request_id = candidate.request_id
+                        RETURNING car.request_id, car.camera_id, car.user_id, car.access_token, car.status, car.expires_at, car.created_at;
+            """,
+            access_token,
+        )
+    except Exception as e:
+        print(f"Error verifying camera access request by token: {e}")
+        return None
+
+
 async def verify_camera_access_request(camera_id, access_token, user_id):
     try:
         return await _fetchrow(

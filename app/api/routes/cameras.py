@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, Form, Header
 
 from app.schemas import (
     CameraCreateRequest,
@@ -19,6 +19,7 @@ from app.services.database import (
     reset_camera_secret as reset_camera_secret_db,
     update_camera as update_camera_db,
     verify_camera_access_request as verify_camera_access_request_db,
+    verify_camera_access_request_by_token as verify_camera_access_by_token_db,
     verify_camera_stream as verify_camera_stream_db,
 )
 
@@ -85,29 +86,13 @@ async def request_camera_access(
 
 @router.get("/verify-access", response_model=ResponseMessage)
 async def verify_camera_access(
-    camera_id: str,
-    token: str,
-    current_user: dict = Depends(get_current_user_record),
+    token: str = Header(..., alias="X-Stream-Token"),
 ):
-    if not is_superadmin(current_user) and current_user.get("group_id") is None:
-        raise HTTPException(status_code=403, detail="User is not assigned to any group")
+    """Verify camera access using only the access token."""
+    if not token:
+        raise HTTPException(status_code=400, detail="Access token is required")
 
-    camera = await get_camera_db(
-        camera_id=camera_id,
-        group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
-    )
-    if not camera:
-        raise HTTPException(status_code=404, detail="Camera not found")
-
-    user_id = current_user.get("user_id")
-    if user_id is None:
-        raise HTTPException(status_code=401, detail="Invalid user session")
-
-    access = await verify_camera_access_request_db(
-        camera_id=camera_id,
-        access_token=token,
-        user_id=user_id,
-    )
+    access = await verify_camera_access_by_token_db(access_token=token)
     if not access:
         raise HTTPException(status_code=403, detail="Invalid or expired access token")
 
@@ -115,7 +100,7 @@ async def verify_camera_access(
         code=200,
         message="Camera access verified",
         data={
-            "camera_id": camera_id,
+            "camera_id": access.get("camera_id"),
             "expires_at": access.get("expires_at"),
             "status": access.get("status"),
         },
