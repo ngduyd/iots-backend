@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Form, Header
 from typing import Optional
 
+from urllib.parse import parse_qs, urlparse
+
+
 from app.schemas import (
     CameraCreateRequest,
     CameraListResponse,
@@ -87,11 +90,18 @@ async def request_camera_access(
 
 @router.get("/verify-access")
 async def verify_camera_access(
-    token: Optional[str] = Header(default=None, alias="X-Stream-Token"),
+    query_string: Optional[str] = Header(default=None, alias="X-Query-String"),
     original_uri: Optional[str] = Header(default=None, alias="X-Original-URI")
 ):
-    if original_uri and original_uri.endswith(".ts"):
-        return {"status": "TS chunk allowed"}
+    if original_uri:
+        path = urlparse(original_uri).path
+        if path.endswith(".ts"):
+            return {"status": "TS chunk allowed"}
+
+    token = None
+    if query_string:
+        parsed = parse_qs(query_string)
+        token = parsed.get("token", [None])[0]
 
     if not token:
         raise HTTPException(status_code=403, detail="Access token is required")
