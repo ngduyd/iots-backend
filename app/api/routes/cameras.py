@@ -106,13 +106,21 @@ async def verify_camera_access(
     if not token:
         raise HTTPException(status_code=403, detail="Access token is required")
 
-    access = await verify_camera_access_by_token_db(access_token=token)
+    access = await verify_camera_access_by_token_db(
+        access_token=token,
+        ttl_seconds=config.CAMERA_ACCESS_TOKEN_TTL_SECONDS,
+    )
     if not access:
         raise HTTPException(status_code=403, detail="Invalid or expired access token")
 
     return {
         "code": 200,
-        "message": "Camera access verified"
+        "message": "Camera access verified",
+        "data": {
+            "camera_id": access.get("camera_id"),
+            "expires_at": access.get("expires_at"),
+            "status": access.get("status"),
+        },
     }
 
 
