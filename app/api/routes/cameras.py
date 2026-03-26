@@ -22,8 +22,6 @@ from app.services.database import (
     verify_camera_stream as verify_camera_stream_db,
 )
 
-from app.core import config
-
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 
 
@@ -70,7 +68,8 @@ async def request_camera_access(
         raise HTTPException(status_code=400, detail="Cannot create camera access token")
 
     token = access.get("access_token")
-    stream_url = f"http://{config.SERVER_HOST_NAME}/hls/{camera_id}.m3u8?token={token}"
+    base_url = config.STREAM_BASE_URL.strip()
+    stream_url = f"{base_url.rstrip('/')}/hls/{camera_id}.m3u8?token={token}"
 
     return ResponseMessage(
         code=200,

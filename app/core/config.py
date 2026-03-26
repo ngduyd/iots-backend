@@ -23,7 +23,6 @@ AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "admin123")
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "change-me-in-production")
 SESSION_MAX_AGE_SECONDS = int(os.environ.get("SESSION_MAX_AGE_SECONDS", 3600))
 CAMERA_ACCESS_TOKEN_TTL_SECONDS = int(os.environ.get("CAMERA_ACCESS_TOKEN_TTL_SECONDS", 60))
+STREAM_BASE_URL = os.environ.get("STREAM_BASE_URL", "localhost:8080/live")
 
 SENSOR_OFFLINE_TIMEOUT = int(os.environ.get("SENSOR_OFFLINE_TIMEOUT", 120))
-
-SERVER_HOST_NAME = os.environ.get("SERVER_HOST_NAME", "localhost")

@@ -68,6 +68,7 @@ Python backend service that ingests MQTT sensor messages, stores data in Postgre
 - `GET /api/branches`
 - `GET /api/branches/{branch_id}`
 - `GET /api/branches/{branch_id}/sensors`
+- `GET /api/branches/{branch_id}/cameras`
 - `POST /api/branches`
 - `PUT /api/branches/{branch_id}`
 - `DELETE /api/branches/{branch_id}`
@@ -84,6 +85,8 @@ Python backend service that ingests MQTT sensor messages, stores data in Postgre
 ### Cameras
 
 - `POST /api/cameras/verify-stream` (public, verifies `id` + `secret`)
+- `GET /api/cameras/request-access` (auth required, issues short-lived access token and stream URL)
+- `GET /api/cameras/verify-access` (auth required, verifies token and marks it used)
 - `GET /api/cameras`
 - `GET /api/cameras/{camera_id}`
 - `POST /api/cameras` (admin)
@@ -124,6 +127,11 @@ Python backend service that ingests MQTT sensor messages, stores data in Postgre
 ### Runtime
 
 - `SENSOR_OFFLINE_TIMEOUT` (default: `120`)
+
+### Camera Access
+
+- `CAMERA_ACCESS_TOKEN_TTL_SECONDS` (default: `60`)
+- `STREAM_BASE_URL` (default: `localhost:8080/live`, should be set to your public stream base URL)
 
 ## Run Locally (Windows PowerShell)
 

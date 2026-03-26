@@ -592,15 +592,22 @@ async def verify_camera_access_request(camera_id, access_token, user_id):
     try:
         return await _fetchrow(
             """
-            SELECT request_id, camera_id, user_id, access_token, status, expires_at, created_at
-            FROM camera_access_requests
-            WHERE camera_id = $1
-              AND access_token = $2
-              AND user_id = $3
-              AND status = 'approved'
-              AND expires_at > NOW()
-            ORDER BY request_id DESC
-            LIMIT 1;
+                        WITH candidate AS (
+                                SELECT request_id
+                                FROM camera_access_requests
+                                WHERE camera_id = $1
+                                    AND access_token = $2
+                                    AND user_id = $3
+                                    AND status = 'approved'
+                                    AND expires_at > NOW()
+                                ORDER BY request_id DESC
+                                LIMIT 1
+                        )
+                        UPDATE camera_access_requests car
+                        SET status = 'used', updated_at = NOW()
+                        FROM candidate
+                        WHERE car.request_id = candidate.request_id
+                        RETURNING car.request_id, car.camera_id, car.user_id, car.access_token, car.status, car.expires_at, car.created_at;
             """,
             camera_id,
             access_token,
@@ -613,7 +620,7 @@ async def verify_camera_access_request(camera_id, access_token, user_id):
 
 async def verify_camera_stream(camera_id, secret):
     try:
-        row = await _fetchrow(
+        return await _fetchrow(
             """
             SELECT camera_id, branch_id, name
             FROM cameras
@@ -622,25 +629,8 @@ async def verify_camera_stream(camera_id, secret):
             camera_id,
             secret,
         )
-        if row is not None:
-            return row
     except Exception as e:
-        # Backward-compatibility: older schema may still use password.
-        if 'column "secret" does not exist' not in str(e):
-            print(f"Error verifying camera stream with secret: {e}")
-
-    try:
-        return await _fetchrow(
-            """
-            SELECT camera_id, branch_id, name
-            FROM cameras
-            WHERE camera_id = $1 AND password = $2;
-            """,
-            camera_id,
-            secret,
-        )
-    except Exception as e:
-        print(f"Error verifying camera stream with password fallback: {e}")
+        print(f"Error verifying camera stream: {e}")
         return None
 
 
