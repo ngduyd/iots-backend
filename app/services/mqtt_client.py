@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
+import asyncio
 import queue as pyqueue
 
 import paho.mqtt.client as mqtt
 
 from app.core import config
-from app.services import manager
+from app.services.database import update_sensor_status
 
 
 def on_connect(client, userdata, flags, rc):
@@ -23,7 +24,10 @@ def on_message(client, userdata, msg):
     sensor_id = msg.topic.split("/sensors/")[1] if "/sensors/" in msg.topic else None
     payload = msg.payload.decode()
 
-    manager.record_sensor_activity(sensor_id, loop)
+    if payload.strip().lower() == "offline":
+        if sensor_id and loop:
+            asyncio.run_coroutine_threadsafe(update_sensor_status(sensor_id, "offline"), loop)
+        return
 
     if loop and message_queue:
         def _enqueue():

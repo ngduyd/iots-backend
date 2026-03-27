@@ -2,7 +2,6 @@ import asyncio
 import random
 
 from app.core import config
-from app.services import manager
 from app.services.database import get_active_cameras, save_messages_batch
 from app.services.mqtt_client import create_mqtt_client
 from app.services.camera import process_camera_stream
@@ -13,7 +12,6 @@ class MqttRuntime:
         self.client = None
         self.loop = None
         self.message_queue = None
-        self._offline_task = None
         self._db_worker_task = None
         self._camera_scheduler_task = None
         self._camera_running = set()
@@ -31,7 +29,6 @@ class MqttRuntime:
         self.client.connect(config.MQTT_BROKER, config.MQTT_PORT, 60)
         self.client.loop_start()
 
-        self._offline_task = asyncio.create_task(self._offline_monitor())
         self._db_worker_task = asyncio.create_task(self._db_worker())
         self._camera_scheduler_task = asyncio.create_task(self._camera_scheduler())
         self.running = True
@@ -40,7 +37,7 @@ class MqttRuntime:
     async def stop(self):
         self.running = False
 
-        for task in (self._offline_task, self._db_worker_task, self._camera_scheduler_task):
+        for task in (self._db_worker_task, self._camera_scheduler_task):
             if task:
                 task.cancel()
                 try:
@@ -65,11 +62,6 @@ class MqttRuntime:
             self.client = None
 
         print("MQTT runtime stopped")
-
-    async def _offline_monitor(self):
-        while True:
-            await asyncio.sleep(max(1, config.OFFLINE_MONITOR_INTERVAL_SECONDS))
-            manager.check_offline_sensors(config.SENSOR_OFFLINE_TIMEOUT, self.loop)
 
     async def _db_worker(self):
         batch_size = max(1, config.DB_WORKER_BATCH_SIZE)

@@ -19,7 +19,7 @@ async def process_camera_stream(camera_id: str, secret: str):
     
     # Build RTMP URL from config so each camera can run independently.
     rtmp_url = f"{config.RTMP_BASE_URL.rstrip('/')}/{camera_id}?secret={secret}"
-    print(f"Capturing camera stream for {camera_id}")
+    print(f"Capturing camera stream for {camera_id}", flush=True)
     
     try:
         # Open capture with timeout to prevent hanging

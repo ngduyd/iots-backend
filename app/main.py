@@ -11,7 +11,6 @@ from app.api.routes.sensors import router as sensors_router
 from app.api.routes.users import current_user_router, router as users_router
 from app.core import config
 from app.runtime import MqttRuntime
-from app.services import manager
 from app.services.database import close_db, ensure_default_admin_user, init_db
 
 runtime = MqttRuntime()
@@ -29,12 +28,6 @@ async def lifespan(_app: FastAPI):
             print("Cannot ensure default admin/superadmin users")
     except Exception as e:
         print(f"Database initialization failed: {e}")
-
-    print("Initializing sensor manager...")
-    try:
-        await manager.init()
-    except Exception as e:
-        print(f"Sensor manager initialization failed: {e}")
 
     await runtime.start()
     try:

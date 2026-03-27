@@ -283,6 +283,36 @@ async def init_db():
                     CREATE INDEX IF NOT EXISTS idx_image_analysis_created ON image_analysis(created_at DESC);
                     """
                 )
+                await connection.execute(
+                    """
+                    CREATE OR REPLACE FUNCTION sync_sensor_status_from_value()
+                    RETURNS TRIGGER AS $$
+                    BEGIN
+                        UPDATE sensors
+                        SET status = 'online',
+                            updated_at = NOW()
+                        WHERE sensor_id = NEW.sensor_id
+                          AND deleted_at IS NULL
+                          AND status IS DISTINCT FROM 'online';
+
+                        RETURN NEW;
+                    END;
+                    $$ LANGUAGE plpgsql;
+                    """
+                )
+                await connection.execute(
+                    """
+                    DROP TRIGGER IF EXISTS trg_sync_sensor_status_from_value ON values;
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE TRIGGER trg_sync_sensor_status_from_value
+                    AFTER INSERT ON values
+                    FOR EACH ROW
+                    EXECUTE FUNCTION sync_sensor_status_from_value();
+                    """
+                )
     except Exception as e:
         print(f"Error initializing the database: {e}")
 
