@@ -131,6 +131,7 @@ class MqttRuntime:
                 for camera_id in due_ids:
                     self._camera_running.add(camera_id)
                     self._camera_next_run[camera_id] = now + max(1, config.CAMERA_CAPTURE_INTERVAL_SECONDS)
+                    print(f"[SCHEDULER] Camera {camera_id} queued (next at +{config.CAMERA_CAPTURE_INTERVAL_SECONDS}s)")
                     task = asyncio.create_task(self._capture_camera_once(camera_id, active[camera_id]))
                     self._camera_capture_tasks.add(task)
                     task.add_done_callback(lambda t, cid=camera_id: self._on_capture_done(cid, t))
@@ -140,16 +141,22 @@ class MqttRuntime:
             await asyncio.sleep(max(1, config.CAMERA_SCHEDULER_POLL_SECONDS))
 
     async def _capture_camera_once(self, camera_id: str, secret: str):
+        import time
+        start_time = time.time()
         async with self._camera_semaphore:
             try:
                 await asyncio.wait_for(
                     process_camera_stream(camera_id, secret),
                     timeout=max(1, config.CAMERA_CAPTURE_TASK_TIMEOUT_SECONDS),
                 )
+                elapsed = time.time() - start_time
+                print(f"[TIMING] Camera {camera_id} capture completed in {elapsed:.2f}s")
             except asyncio.TimeoutError:
-                print(f"Camera capture timeout for {camera_id}")
+                elapsed = time.time() - start_time
+                print(f"[TIMING] Camera {camera_id} capture TIMEOUT after {elapsed:.2f}s")
             except Exception as e:
-                print(f"Error processing camera stream {camera_id}: {e}")
+                elapsed = time.time() - start_time
+                print(f"[TIMING] Camera {camera_id} error after {elapsed:.2f}s: {e}")
 
     def _on_capture_done(self, camera_id: str, task: asyncio.Task):
         self._camera_capture_tasks.discard(task)
