@@ -58,9 +58,13 @@ async def process_camera_frame(camera_id: str, frame_data: bytes, metadata: dict
     """
     import time
     start_time = time.time()
+    step_start = start_time
     try:
-        # Get camera info (cached to avoid repeated DB queries)
+        # Step 1: Get camera info (cached)
         camera = await _get_camera_cached(camera_id)
+        step_time = time.time() - step_start
+        print(f"[TIMING] {camera_id} DB get_camera (cached): {step_time:.2f}s")
+        
         if not camera:
             print(f"[ANALYSIS] Camera {camera_id} not found")
             return None
@@ -68,30 +72,30 @@ async def process_camera_frame(camera_id: str, frame_data: bytes, metadata: dict
         # Generate image ID
         image_id = _generate_image_id()
         
-        # Send frame + camera_id to people counting service
-        # Service will save the frame and return analysis result
-        print(f"[ANALYSIS] Camera {camera_id} calling people count service (timeout {PEOPLE_COUNT_TIMEOUT_SECONDS}s)")
+        # Step 2: Call people count service
+        step_start = time.time()
+        print(f"[ANALYSIS] {camera_id} step 1: calling people count service...")
         people_count = await _call_people_count_service(camera_id, frame_data)
+        service_time = time.time() - step_start
         
         if people_count is None:
             elapsed = time.time() - start_time
-            print(f"[ANALYSIS] Camera {camera_id} failed to get people count after {elapsed:.2f}s")
+            print(f"[ANALYSIS] {camera_id} failed to get people count after {elapsed:.2f}s")
             return None
         
-        elapsed = time.time() - start_time
-        print(f"[TIMING] Camera {camera_id} got people_count={people_count} in {elapsed:.2f}s")
+        print(f"[TIMING] {camera_id} people count service call: {service_time:.2f}s")
         
-        # Build metadata
+        # Step 3: Build metadata
+        step_start = time.time()
         analysis_metadata = {
             "camera_name": camera.get("name"),
             "branch_id": camera.get("branch_id"),
             **(metadata or {})
         }
-        
-        # Placeholder path (service stores the actual frame)
         image_path = f"remote://{camera_id}/{image_id}"
         
-        # Save analysis result to database
+        # Step 4: Save to database
+        print(f"[ANALYSIS] {camera_id} step 2: saving to database...")
         result = await save_image_analysis(
             image_id=image_id,
             camera_id=camera_id,
@@ -99,7 +103,11 @@ async def process_camera_frame(camera_id: str, frame_data: bytes, metadata: dict
             people_count=people_count,
             metadata=analysis_metadata,
         )
+        db_save_time = time.time() - step_start
+        print(f"[TIMING] {camera_id} DB save_image_analysis: {db_save_time:.2f}s")
         
+        elapsed = time.time() - start_time
+        print(f"[TIMING] {camera_id} ANALYSIS PIPELINE: {elapsed:.2f}s (cache_db:{step_time:.2f}s + service:{service_time:.2f}s + db_save:{db_save_time:.2f}s)")
         return result
     
     except Exception as e:
