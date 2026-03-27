@@ -14,9 +14,9 @@ class MqttRuntime:
         self.message_queue = None
         self._offline_task = None
         self._db_worker_task = None
-        self._camera_scheduler_task = None
-        self._camera_workers = {}
-        self._camera_secrets = {}
+        # self._camera_scheduler_task = None
+        # self._camera_workers = {}
+        # self._camera_secrets = {}
         self.running = False
 
     async def start(self):
@@ -28,9 +28,9 @@ class MqttRuntime:
         self.client.connect(config.MQTT_BROKER, config.MQTT_PORT, 60)
         self.client.loop_start()
 
-        self._offline_task = asyncio.create_task(self._offline_monitor())
-        self._db_worker_task = asyncio.create_task(self._db_worker())
-        self._camera_scheduler_task = asyncio.create_task(self._camera_scheduler())
+        # self._offline_task = asyncio.create_task(self._offline_monitor())
+        # self._db_worker_task = asyncio.create_task(self._db_worker())
+        # self._camera_scheduler_task = asyncio.create_task(self._camera_scheduler())
         self.running = True
         print("MQTT runtime started")
 
