@@ -95,13 +95,18 @@ async def _fetchrow(query, *args):
         return None
 
     async with pool.acquire() as connection:
-        lock_timeout_ms = max(1, config.DB_READ_LOCK_TIMEOUT_MS)
-        statement_timeout_ms = max(1, config.DB_READ_STATEMENT_TIMEOUT_MS)
-        async with connection.transaction(readonly=True, isolation="read_committed"):
-            await connection.execute(f"SET LOCAL lock_timeout = '{lock_timeout_ms}ms';")
-            await connection.execute(f"SET LOCAL statement_timeout = '{statement_timeout_ms}ms';")
-            row = await connection.fetchrow(query, *args)
-            return dict(row) if row else None
+        normalized = query.lstrip().upper()
+        if normalized.startswith("SELECT"):
+            lock_timeout_ms = max(1, config.DB_READ_LOCK_TIMEOUT_MS)
+            statement_timeout_ms = max(1, config.DB_READ_STATEMENT_TIMEOUT_MS)
+            async with connection.transaction(readonly=True, isolation="read_committed"):
+                await connection.execute(f"SET LOCAL lock_timeout = '{lock_timeout_ms}ms';")
+                await connection.execute(f"SET LOCAL statement_timeout = '{statement_timeout_ms}ms';")
+                row = await connection.fetchrow(query, *args)
+                return dict(row) if row else None
+
+        row = await connection.fetchrow(query, *args)
+        return dict(row) if row else None
 
 
 async def init_db():
