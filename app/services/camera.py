@@ -21,11 +21,14 @@ async def process_camera_stream(camera_id: str, secret: str):
     ffmpeg_cmd = [
         "ffmpeg",
         "-loglevel", "error",
+        "-analyzeduration", "100000",  # Tối ưu: Giảm thời gian analyze stream (microseconds)
+        "-probesize", "100000",        # Tối ưu: Giảm kích thước probe size
         "-fflags", "nobuffer",
         "-flags", "low_delay",
         "-rtsp_transport", "tcp",
         "-i", rtmp_url,
         "-frames:v", "1",
+        "-q:v", "2",                   # Tối ưu: Giữ chất lượng ảnh JPEG tốt (scale 1-31, 2 là cao)
         "-f", "image2",
         "-vcodec", "mjpeg",
         "pipe:1"
