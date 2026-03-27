@@ -19,6 +19,8 @@ async def process_camera_stream(camera_id: str, secret: str):
     # Build RTMP URL from config so each camera can run independently.
     rtmp_url = f"{config.RTMP_BASE_URL.rstrip('/')}/{camera_id}?secret={secret}"
 
+    print(f"Processing camera stream for {camera_id} at {rtmp_url}")
+
     cap = cv2.VideoCapture(rtmp_url)
     try:
         if not cap.isOpened():
