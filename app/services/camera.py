@@ -11,40 +11,44 @@ async def process_camera_stream(camera_id: str, secret: str):
     Returns:
         Analysis result dict or None
     """
-    import av
+    import sys
+    import shlex
     # Build RTMP URL from config so each camera can run independently.
     rtmp_url = f"{config.RTMP_BASE_URL.rstrip('/')}/{camera_id}?secret={secret}"
-    print(f"Capturing camera stream for {camera_id}", flush=True)
+    print(f"Capturing camera stream for {camera_id} using ffmpeg", flush=True)
 
-    container = None
+    # Prepare ffmpeg command to grab 1 frame as JPEG to stdout
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-loglevel", "error",
+        "-fflags", "nobuffer",
+        "-flags", "low_delay",
+        "-rtsp_transport", "tcp",
+        "-i", rtmp_url,
+        "-frames:v", "1",
+        "-f", "image2",
+        "-vcodec", "mjpeg",
+        "pipe:1"
+    ]
+
     try:
-        # Open stream with timeout using thread to avoid blocking event loop
-        container = await asyncio.wait_for(
-            asyncio.to_thread(av.open, rtmp_url),
-            timeout=10,
+        proc = await asyncio.create_subprocess_exec(
+            *ffmpeg_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
         )
-    except Exception as e:
-        print(f"Failed to open RTMP stream {camera_id} with PyAV: {e}")
-        return None
-
-    frame_data = None
-    try:
-        # Decode first video frame
-        frame = next(container.decode(video=0), None)
-        if frame is None:
-            print(f"No frame decoded for camera {camera_id}")
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            print(f"ffmpeg timeout for camera {camera_id}")
             return None
-        img = frame.to_ndarray(format="bgr24")
-        import cv2
-        ok, buffer = cv2.imencode('.jpg', img)
-        if not ok:
-            print(f"Failed to encode frame for camera {camera_id}")
+        if proc.returncode != 0 or not stdout:
+            print(f"ffmpeg failed for camera {camera_id}: {stderr.decode(errors='ignore')}")
             return None
-        frame_data = buffer.tobytes()
+        frame_data = stdout
         return await process_camera_frame(camera_id, frame_data)
     except Exception as e:
-        print(f"Error decoding frame for camera {camera_id}: {e}")
+        print(f"Error running ffmpeg for camera {camera_id}: {e}")
         return None
-    finally:
-        if container is not None:
-            container.close()
