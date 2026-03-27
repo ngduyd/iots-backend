@@ -30,18 +30,17 @@ async def process_camera_stream(camera_id: str, secret: str):
     frame_data = None
     try:
         # Decode first video frame
-        for frame in container.decode(video=0):
-            img = frame.to_ndarray(format="bgr24")
-            import cv2
-            ok, buffer = cv2.imencode('.jpg', img)
-            if not ok:
-                print(f"Failed to encode frame for camera {camera_id}")
-                return None
-            frame_data = buffer.tobytes()
-            break
-        if frame_data is None:
+        frame = next(container.decode(video=0), None)
+        if frame is None:
             print(f"No frame decoded for camera {camera_id}")
             return None
+        img = frame.to_ndarray(format="bgr24")
+        import cv2
+        ok, buffer = cv2.imencode('.jpg', img)
+        if not ok:
+            print(f"Failed to encode frame for camera {camera_id}")
+            return None
+        frame_data = buffer.tobytes()
         return await process_camera_frame(camera_id, frame_data)
     except Exception as e:
         print(f"Error decoding frame for camera {camera_id}: {e}")

@@ -8,4 +8,4 @@ uvicorn==0.34.0
 python-multipart==0.0.22
 requests==2.31.0
 opencv-python-headless==4.10.0.84
-av==0.5.2
+av==17.0.0
