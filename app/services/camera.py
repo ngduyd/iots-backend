@@ -11,42 +11,41 @@ async def process_camera_stream(camera_id: str, secret: str):
     Returns:
         Analysis result dict or None
     """
-    try:
-        import cv2
-    except Exception as e:
-        print(f"OpenCV not available for camera {camera_id}: {e}")
-        return None
-    
+    import av
     # Build RTMP URL from config so each camera can run independently.
     rtmp_url = f"{config.RTMP_BASE_URL.rstrip('/')}/{camera_id}?secret={secret}"
     print(f"Capturing camera stream for {camera_id}", flush=True)
-    
+
+    container = None
     try:
-        # Open capture with timeout to prevent hanging
-        cap = await asyncio.to_thread(cv2.VideoCapture, rtmp_url)
-        if hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
-            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
-    except Exception as e:
-        print(f"Failed to open RTMP stream {camera_id}: {e}")
-        return None
-    
-    try:
-        if not cap.isOpened():
-            return None
-        
-        # Read frame with timeout to avoid blocking loop on bad streams.
-        ret, frame = await asyncio.wait_for(
-            asyncio.to_thread(cap.read),
+        # Open stream with timeout using thread to avoid blocking event loop
+        container = await asyncio.wait_for(
+            asyncio.to_thread(av.open, rtmp_url),
             timeout=10,
         )
-        if not ret:
+    except Exception as e:
+        print(f"Failed to open RTMP stream {camera_id} with PyAV: {e}")
+        return None
+
+    frame_data = None
+    try:
+        # Decode first video frame
+        for frame in container.decode(video=0):
+            img = frame.to_ndarray(format="bgr24")
+            import cv2
+            ok, buffer = cv2.imencode('.jpg', img)
+            if not ok:
+                print(f"Failed to encode frame for camera {camera_id}")
+                return None
+            frame_data = buffer.tobytes()
+            break
+        if frame_data is None:
+            print(f"No frame decoded for camera {camera_id}")
             return None
-        
-        ok, buffer = cv2.imencode('.jpg', frame)
-        if not ok:
-            return None
-        
-        frame_data = buffer.tobytes()
         return await process_camera_frame(camera_id, frame_data)
+    except Exception as e:
+        print(f"Error decoding frame for camera {camera_id}: {e}")
+        return None
     finally:
-        cap.release()
+        if container is not None:
+            container.close()
