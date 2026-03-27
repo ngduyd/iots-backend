@@ -29,6 +29,7 @@ class SensorCreateRequest(BaseModel):
 class CameraCreateRequest(BaseModel):
     name: str | None = None
     branch_id: int
+    active: bool | None = None
 
 
 class CameraVerifyStreamRequest(BaseModel):
@@ -41,6 +42,7 @@ class CameraResponse(BaseModel):
     branch_id: int | None = None
     name: str | None = None
     secret: str | None = None
+    active: bool = False
     created_at: datetime
 
 

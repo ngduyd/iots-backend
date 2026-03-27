@@ -1,4 +1,7 @@
 from datetime import datetime
+import asyncio
+import json
+from urllib import error, request
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -7,6 +10,10 @@ from app.security import get_current_user_record, is_superadmin, require_admin
 from app.services.database import add_sensor as create_sensor, get_branch, get_sensor, get_sensor_name, get_sensor_values, get_sensors, update_sensor as update_sensor_db
 
 router = APIRouter(prefix="/api/sensors", tags=["sensors"])
+
+PREDICT_API_URL = "http://100.123.114.97:9000/predict"
+PREDICT_ROWS = 120
+PREDICT_TIMEOUT_SECONDS = 20
 
 
 @router.get("", response_model=ResponseMessage)
@@ -197,3 +204,75 @@ async def delete_sensor(sensor_id: str, admin_user: dict = Depends(require_admin
         code=200,
         message="Sensor deleted successfully",
     )
+
+@router.get("/{sensor_id}/predict", response_model=ResponseMessage)
+async def predict_sensor_values(
+    sensor_id: str,
+    current_user: dict = Depends(get_current_user_record),
+):
+    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+        raise HTTPException(status_code=403, detail="User is not assigned to any group")
+
+    existing_sensor = await get_sensor(
+        sensor_id=sensor_id,
+        group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
+    )
+    if not existing_sensor:
+        raise HTTPException(status_code=404, detail="Sensor not found")
+
+    rows = await get_sensor_values(
+        sensor_id=sensor_id,
+        limit=PREDICT_ROWS,
+        group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
+    )
+    if len(rows) < PREDICT_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not enough data to predict. Required {PREDICT_ROWS} rows, got {len(rows)}",
+        )
+
+    chronological_rows = list(reversed(rows))
+    lines = [
+        {
+            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+            "value": row.get("value"),
+        }
+        for row in chronological_rows
+    ]
+
+    payload = {
+        "sensor_id": sensor_id,
+        "rows": lines,
+    }
+
+    req = request.Request(
+        PREDICT_API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        response_text = await asyncio.to_thread(_send_predict_request, req)
+        prediction_data = json.loads(response_text) if response_text else None
+    except error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+        raise HTTPException(
+            status_code=502,
+            detail=f"Prediction service returned HTTP {exc.code}: {body}",
+        )
+    except error.URLError as exc:
+        raise HTTPException(status_code=502, detail=f"Cannot connect to prediction service: {exc.reason}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="Prediction service returned invalid JSON")
+
+    return ResponseMessage(
+        code=200,
+        message="Prediction completed successfully",
+        data=prediction_data,
+    )
+
+
+def _send_predict_request(req: request.Request) -> str:
+    with request.urlopen(req, timeout=PREDICT_TIMEOUT_SECONDS) as response:
+        return response.read().decode("utf-8")

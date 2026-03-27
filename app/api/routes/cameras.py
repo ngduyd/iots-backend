@@ -143,6 +143,7 @@ async def list_cameras(
             branch_id=row.get("branch_id"),
             name=row.get("name"),
             secret=row.get("secret"),
+            active=row.get("active", False),
             created_at=row.get("created_at"),
         )
         for row in rows
@@ -178,6 +179,7 @@ async def get_camera(
             branch_id=row.get("branch_id"),
             name=row.get("name"),
             secret=row.get("secret"),
+            active=row.get("active", False),
             created_at=row.get("created_at"),
         ),
     )
@@ -198,6 +200,7 @@ async def add_camera(camera: CameraCreateRequest, admin_user: dict = Depends(req
     row = await create_camera_db(
         name=camera.name,
         branch_id=camera.branch_id,
+        active=bool(camera.active) if camera.active is not None else False,
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot create camera")
@@ -210,6 +213,7 @@ async def add_camera(camera: CameraCreateRequest, admin_user: dict = Depends(req
             branch_id=row.get("branch_id"),
             name=row.get("name"),
             secret=row.get("secret"),
+            active=row.get("active", False),
             created_at=row.get("created_at"),
         ),
     )
@@ -242,6 +246,7 @@ async def update_camera(
         camera_id=camera_id,
         name=camera.name,
         branch_id=camera.branch_id,
+        active=camera.active,
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot update camera")
@@ -254,6 +259,7 @@ async def update_camera(
             branch_id=row.get("branch_id"),
             name=row.get("name"),
             secret=row.get("secret"),
+            active=row.get("active", False),
             created_at=row.get("created_at"),
         ),
     )
@@ -286,6 +292,44 @@ async def reset_camera_secret(
             branch_id=row.get("branch_id"),
             name=row.get("name"),
             secret=row.get("secret"),
+            active=row.get("active", False),
+            created_at=row.get("created_at"),
+        ),
+    )
+
+
+@router.post("/{camera_id}/active", response_model=ResponseMessage)
+async def set_camera_active(
+    camera_id: str,
+    active: bool = Query(...),
+    admin_user: dict = Depends(require_admin),
+):
+    if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
+        raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
+
+    existing_camera = await get_camera_db(
+        camera_id=camera_id,
+        group_id=None if is_superadmin(admin_user) else admin_user.get("group_id"),
+    )
+    if not existing_camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+
+    row = await update_camera_db(
+        camera_id=camera_id,
+        active=active,
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="Cannot update camera active status")
+
+    return ResponseMessage(
+        code=200,
+        message="Camera active status updated successfully",
+        data=CameraResponse(
+            camera_id=row.get("camera_id"),
+            branch_id=row.get("branch_id"),
+            name=row.get("name"),
+            secret=row.get("secret"),
+            active=row.get("active", False),
             created_at=row.get("created_at"),
         ),
     )

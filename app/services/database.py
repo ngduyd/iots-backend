@@ -185,8 +185,15 @@ async def init_db():
                         branch_id INT REFERENCES branches(branch_id),
                         name VARCHAR(50),
                         secret VARCHAR(64),
+                        active BOOLEAN NOT NULL DEFAULT FALSE,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );
+                    """
+                )
+                await connection.execute(
+                    """
+                    ALTER TABLE cameras
+                    ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT FALSE;
                     """
                 )
                 await connection.execute(
@@ -198,6 +205,19 @@ async def init_db():
                         status VARCHAR(20) DEFAULT 'pending' NOT NULL,
                         access_token VARCHAR(128),
                         expires_at TIMESTAMPTZ,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS image_analysis (
+                        image_id VARCHAR(64) PRIMARY KEY,
+                        camera_id VARCHAR(32) REFERENCES cameras(camera_id) ON DELETE SET NULL,
+                        image_path VARCHAR(255),
+                        people_count INT DEFAULT 0,
+                        metadata JSONB,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );
@@ -236,6 +256,16 @@ async def init_db():
                     """
                     CREATE INDEX IF NOT EXISTS idx_camera_access_requests_token
                     ON camera_access_requests(access_token);
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_image_analysis_camera ON image_analysis(camera_id);
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_image_analysis_created ON image_analysis(created_at DESC);
                     """
                 )
     except Exception as e:
@@ -517,7 +547,7 @@ async def get_cameras(limit=100, group_id=None):
         if group_id is not None:
             return await _fetch(
                 """
-                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.created_at
+                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.active, c.created_at
                 FROM cameras c
                 JOIN branches b ON b.branch_id = c.branch_id
                 WHERE b.group_id = $1
@@ -530,7 +560,7 @@ async def get_cameras(limit=100, group_id=None):
 
         return await _fetch(
             """
-            SELECT camera_id, branch_id, name, secret, created_at
+            SELECT camera_id, branch_id, name, secret, active, created_at
             FROM cameras
             ORDER BY camera_id DESC
             LIMIT $1;
@@ -542,12 +572,27 @@ async def get_cameras(limit=100, group_id=None):
         return []
 
 
+async def get_active_cameras():
+    try:
+        return await _fetch(
+            """
+            SELECT camera_id, branch_id, name, secret, active, created_at
+            FROM cameras
+            WHERE active = TRUE
+            ORDER BY camera_id DESC;
+            """
+        )
+    except Exception as e:
+        print(f"Error getting active cameras: {e}")
+        return []
+
+
 async def get_camera(camera_id, group_id=None):
     try:
         if group_id is not None:
             return await _fetchrow(
                 """
-                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.created_at
+                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.active, c.created_at
                 FROM cameras c
                 JOIN branches b ON b.branch_id = c.branch_id
                 WHERE c.camera_id = $1 AND b.group_id = $2;
@@ -558,7 +603,7 @@ async def get_camera(camera_id, group_id=None):
 
         return await _fetchrow(
             """
-            SELECT camera_id, branch_id, name, secret, created_at
+            SELECT camera_id, branch_id, name, secret, active, created_at
             FROM cameras
             WHERE camera_id = $1;
             """,
@@ -664,7 +709,7 @@ async def verify_camera_stream(camera_id, secret):
         return None
 
 
-async def add_camera(name=None, branch_id=None):
+async def add_camera(name=None, branch_id=None, active=False):
     if branch_id is None:
         print("branch_id is required")
         return None
@@ -674,31 +719,35 @@ async def add_camera(name=None, branch_id=None):
         secret = _generate_camera_secret()
         return await _fetchrow(
             """
-            INSERT INTO cameras (camera_id, branch_id, name, secret)
-            VALUES ($1, $2, $3, $4)
-            RETURNING camera_id, branch_id, name, secret, created_at;
+            INSERT INTO cameras (camera_id, branch_id, name, secret, active)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING camera_id, branch_id, name, secret, active, created_at;
             """,
             camera_id,
             branch_id,
             name,
             secret,
+            active,
         )
     except Exception as e:
         print(f"Error adding camera: {e}")
         return None
 
 
-async def update_camera(camera_id, name=None, branch_id=None):
+async def update_camera(camera_id, name=None, branch_id=None, active=None):
     try:
         return await _fetchrow(
             """
             UPDATE cameras
-            SET branch_id = $1, name = $2
-            WHERE camera_id = $3
-            RETURNING camera_id, branch_id, name, secret, created_at;
+            SET branch_id = COALESCE($1, branch_id),
+                name = COALESCE($2, name),
+                active = COALESCE($3, active)
+            WHERE camera_id = $4
+            RETURNING camera_id, branch_id, name, secret, active, created_at;
             """,
             branch_id,
             name,
+            active,
             camera_id,
         )
     except Exception as e:
@@ -714,7 +763,7 @@ async def reset_camera_secret(camera_id):
             UPDATE cameras
             SET secret = $1
             WHERE camera_id = $2
-            RETURNING camera_id, branch_id, name, secret, created_at;
+            RETURNING camera_id, branch_id, name, secret, active, created_at;
             """,
             new_secret,
             camera_id,
@@ -1099,6 +1148,59 @@ async def delete_user(user_id):
     except Exception as e:
         print(f"Error deleting user: {e}")
         return False
+
+
+async def save_image_analysis(image_id, camera_id, image_path, people_count, metadata=None):
+    try:
+        return await _fetchrow(
+            """
+            INSERT INTO image_analysis (image_id, camera_id, image_path, people_count, metadata)
+            VALUES ($1, $2, $3, $4, $5::jsonb)
+            RETURNING image_id, camera_id, image_path, people_count, metadata, created_at, updated_at;
+            """,
+            image_id,
+            camera_id,
+            image_path,
+            people_count,
+            json.dumps(metadata) if metadata else None,
+        )
+    except Exception as e:
+        print(f"Error saving image analysis: {e}")
+        return None
+
+
+async def get_image_analysis(image_id):
+    try:
+        return await _fetchrow(
+            """
+            SELECT image_id, camera_id, image_path, people_count, metadata, created_at, updated_at
+            FROM image_analysis
+            WHERE image_id = $1;
+            """,
+            image_id,
+        )
+    except Exception as e:
+        print(f"Error getting image analysis: {e}")
+        return None
+
+
+async def get_image_analysis_by_camera_last_10_minutes(camera_id):
+    """Get image analysis from the last 10 minutes for a camera."""
+    try:
+        return await _fetch(
+            """
+            SELECT image_id, camera_id, image_path, people_count, metadata, created_at, updated_at
+            FROM image_analysis
+            WHERE camera_id = $1
+              AND created_at >= NOW() - INTERVAL '11 minutes'
+              AND created_at <= NOW()
+            ORDER BY created_at DESC;
+            """,
+            camera_id,
+        )
+    except Exception as e:
+        print(f"Error getting image analysis from last 10 minutes: {e}")
+        return []
 
 
 async def create_user_session(
