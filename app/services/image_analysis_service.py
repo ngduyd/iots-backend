@@ -12,7 +12,25 @@ from app.services.database import save_image_analysis, get_camera
 
 
 PEOPLE_COUNT_API_URL = "http://100.123.114.97:9000/api/v1/count-people"
-PEOPLE_COUNT_TIMEOUT_SECONDS = 30
+PEOPLE_COUNT_TIMEOUT_SECONDS = 8  # Reduced from 30s for faster fail-fast
+
+# Simple in-memory cache for camera info (60s TTL)
+_camera_cache = {}
+_camera_cache_time = {}
+
+
+async def _get_camera_cached(camera_id: str):
+    """Get camera info with caching to reduce DB queries."""
+    now = asyncio.get_running_loop().time()
+    if camera_id in _camera_cache:
+        cached_at = _camera_cache_time.get(camera_id, 0)
+        if now - cached_at < 60:
+            return _camera_cache[camera_id]
+    
+    camera = await get_camera(camera_id)
+    _camera_cache[camera_id] = camera
+    _camera_cache_time[camera_id] = now
+    return camera
 
 
 def _generate_image_id():
@@ -38,11 +56,13 @@ async def process_camera_frame(camera_id: str, frame_data: bytes, metadata: dict
     Returns:
         dict with analysis result or None on error
     """
+    import time
+    start_time = time.time()
     try:
-        # Get camera info
-        camera = await get_camera(camera_id)
+        # Get camera info (cached to avoid repeated DB queries)
+        camera = await _get_camera_cached(camera_id)
         if not camera:
-            print(f"Camera {camera_id} not found")
+            print(f"[ANALYSIS] Camera {camera_id} not found")
             return None
         
         # Generate image ID
@@ -50,11 +70,16 @@ async def process_camera_frame(camera_id: str, frame_data: bytes, metadata: dict
         
         # Send frame + camera_id to people counting service
         # Service will save the frame and return analysis result
+        print(f"[ANALYSIS] Camera {camera_id} calling people count service (timeout {PEOPLE_COUNT_TIMEOUT_SECONDS}s)")
         people_count = await _call_people_count_service(camera_id, frame_data)
         
         if people_count is None:
-            print(f"Failed to get people count for {image_id}")
+            elapsed = time.time() - start_time
+            print(f"[ANALYSIS] Camera {camera_id} failed to get people count after {elapsed:.2f}s")
             return None
+        
+        elapsed = time.time() - start_time
+        print(f"[TIMING] Camera {camera_id} got people_count={people_count} in {elapsed:.2f}s")
         
         # Build metadata
         analysis_metadata = {
@@ -78,7 +103,8 @@ async def process_camera_frame(camera_id: str, frame_data: bytes, metadata: dict
         return result
     
     except Exception as e:
-        print(f"Error processing camera frame: {e}")
+        elapsed = time.time() - start_time
+        print(f"[ANALYSIS] Camera {camera_id} error after {elapsed:.2f}s: {type(e).__name__}: {e}")
         return None
 
 
@@ -94,6 +120,8 @@ async def _call_people_count_service(camera_id: str, frame_data: bytes) -> int |
     Returns:
         Number of people detected or None on error
     """
+    import time
+    start_time = time.time()
     try:
         # Prepare multipart form data
         files = {
@@ -101,34 +129,46 @@ async def _call_people_count_service(camera_id: str, frame_data: bytes) -> int |
             'image': ('frame.jpg', frame_data, 'image/jpeg'),  # Binary file
         }
         
+        print(f"[ANALYSIS] Camera {camera_id} sending frame ({len(frame_data)} bytes) to service")
         # Send request in thread to avoid blocking
         response_text = await asyncio.to_thread(
             _send_count_request, 
             PEOPLE_COUNT_API_URL, 
-            files
+            files,
+            PEOPLE_COUNT_TIMEOUT_SECONDS
         )
+        elapsed = time.time() - start_time
+        print(f"[TIMING] Camera {camera_id} service returned in {elapsed:.2f}s")
         response_data = json.loads(response_text)
         
         # Extract people count from response
         people_count = response_data.get("people_count", 0)
         return people_count if isinstance(people_count, int) else 0
     
+    except requests.exceptions.Timeout:
+        elapsed = time.time() - start_time
+        print(f"[TIMING] Camera {camera_id} service TIMEOUT after {elapsed:.2f}s (limit {PEOPLE_COUNT_TIMEOUT_SECONDS}s)")
+        return None
     except requests.exceptions.HTTPError as exc:
-        print(f"People count service HTTP error {exc.response.status_code}: {exc.response.text}")
+        elapsed = time.time() - start_time
+        print(f"[ANALYSIS] Camera {camera_id} HTTP error {exc.response.status_code} after {elapsed:.2f}s: {exc.response.text[:100]}")
         return None
     except requests.exceptions.ConnectionError as exc:
-        print(f"Cannot connect to people count service: {exc}")
+        elapsed = time.time() - start_time
+        print(f"[ANALYSIS] Camera {camera_id} connection error after {elapsed:.2f}s: {exc}")
         return None
     except json.JSONDecodeError:
-        print("People count service returned invalid JSON")
+        elapsed = time.time() - start_time
+        print(f"[ANALYSIS] Camera {camera_id} invalid JSON response after {elapsed:.2f}s")
         return None
     except Exception as e:
-        print(f"Error calling people count service: {e}")
+        elapsed = time.time() - start_time
+        print(f"[ANALYSIS] Camera {camera_id} error after {elapsed:.2f}s: {type(e).__name__}: {e}")
         return None
 
 
-def _send_count_request(url: str, files: dict) -> str:
+def _send_count_request(url: str, files: dict, timeout: int) -> str:
     """Send multipart form-data POST request and return response text."""
-    response = requests.post(url, files=files, timeout=PEOPLE_COUNT_TIMEOUT_SECONDS)
+    response = requests.post(url, files=files, timeout=timeout)
     response.raise_for_status()  # Raise exception on non-200 status
     return response.text
