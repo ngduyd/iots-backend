@@ -80,8 +80,13 @@ async def _fetch(query, *args):
         return []
 
     async with pool.acquire() as connection:
-        rows = await connection.fetch(query, *args)
-        return [dict(row) for row in rows]
+        lock_timeout_ms = max(1, config.DB_READ_LOCK_TIMEOUT_MS)
+        statement_timeout_ms = max(1, config.DB_READ_STATEMENT_TIMEOUT_MS)
+        async with connection.transaction(readonly=True, isolation="read_committed"):
+            await connection.execute(f"SET LOCAL lock_timeout = '{lock_timeout_ms}ms';")
+            await connection.execute(f"SET LOCAL statement_timeout = '{statement_timeout_ms}ms';")
+            rows = await connection.fetch(query, *args)
+            return [dict(row) for row in rows]
 
 
 async def _fetchrow(query, *args):
@@ -90,8 +95,13 @@ async def _fetchrow(query, *args):
         return None
 
     async with pool.acquire() as connection:
-        row = await connection.fetchrow(query, *args)
-        return dict(row) if row else None
+        lock_timeout_ms = max(1, config.DB_READ_LOCK_TIMEOUT_MS)
+        statement_timeout_ms = max(1, config.DB_READ_STATEMENT_TIMEOUT_MS)
+        async with connection.transaction(readonly=True, isolation="read_committed"):
+            await connection.execute(f"SET LOCAL lock_timeout = '{lock_timeout_ms}ms';")
+            await connection.execute(f"SET LOCAL statement_timeout = '{statement_timeout_ms}ms';")
+            row = await connection.fetchrow(query, *args)
+            return dict(row) if row else None
 
 
 async def init_db():
@@ -295,6 +305,45 @@ async def save_message(topic, payload, received_at=None):
             )
     except Exception as e:
         print(f"Error saving message to the database: {e}")
+
+
+async def save_messages_batch(items):
+    """Persist multiple MQTT messages in one DB roundtrip.
+
+    Args:
+        items: list of tuples (sensor_id, payload_str, received_at)
+    """
+    if not items:
+        return
+
+    pool = await get_db_pool()
+    if pool is None:
+        return
+
+    values = []
+    for sensor_id, payload, received_at in items:
+        if not sensor_id:
+            continue
+        try:
+            parsed = json.loads(payload)
+        except Exception:
+            continue
+        values.append((sensor_id, json.dumps(parsed), received_at))
+
+    if not values:
+        return
+
+    try:
+        async with pool.acquire() as connection:
+            await connection.executemany(
+                """
+                INSERT INTO values (sensor_id, value, created_at)
+                VALUES ($1, $2::jsonb, $3);
+                """,
+                values,
+            )
+    except Exception as e:
+        print(f"Error saving message batch to the database: {e}")
 
 
 async def update_sensor_status(sensor_id, status):

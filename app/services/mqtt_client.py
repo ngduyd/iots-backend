@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import queue as pyqueue
 
 import paho.mqtt.client as mqtt
 
@@ -16,7 +17,7 @@ def on_connect(client, userdata, flags, rc):
 
 def on_message(client, userdata, msg):
     loop = userdata.get("loop") if userdata else None
-    queue = userdata.get("queue") if userdata else None
+    message_queue = userdata.get("queue") if userdata else None
     received_at = datetime.now(timezone.utc)
 
     sensor_id = msg.topic.split("/sensors/")[1] if "/sensors/" in msg.topic else None
@@ -24,8 +25,15 @@ def on_message(client, userdata, msg):
 
     manager.record_sensor_activity(sensor_id, loop)
 
-    if loop and queue:
-        loop.call_soon_threadsafe(queue.put_nowait, (sensor_id, payload, received_at))
+    if loop and message_queue:
+        def _enqueue():
+            try:
+                message_queue.put_nowait((sensor_id, payload, received_at))
+            except pyqueue.Full:
+                # Drop newest message when backlog is too high to protect memory.
+                pass
+
+        loop.call_soon_threadsafe(_enqueue)
 
 
 def create_mqtt_client(loop=None, queue=None):
