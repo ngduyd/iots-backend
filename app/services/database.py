@@ -828,6 +828,15 @@ async def end_camera_stream(camera_id, secret):
         return None
 
 
+async def reset_all_cameras_offline():
+    """Reset all cameras to 'offline' on server startup."""
+    try:
+        await _execute("UPDATE cameras SET status = 'offline';")
+        print("[STARTUP] All cameras reset to offline")
+    except Exception as e:
+        print(f"[STARTUP] Error resetting camera statuses: {e}")
+
+
 async def add_camera(name=None, branch_id=None, active=False):
     if branch_id is None:
         print("branch_id is required")

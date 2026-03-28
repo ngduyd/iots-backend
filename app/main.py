@@ -11,7 +11,7 @@ from app.api.routes.sensors import router as sensors_router
 from app.api.routes.users import current_user_router, router as users_router
 from app.core import config
 from app.runtime import runtime
-from app.services.database import close_db, ensure_default_admin_user, init_db
+from app.services.database import close_db, ensure_default_admin_user, init_db, reset_all_cameras_offline
 
 
 @asynccontextmanager
@@ -26,6 +26,8 @@ async def lifespan(_app: FastAPI):
             print("Cannot ensure default admin/superadmin users")
     except Exception as e:
         print(f"Database initialization failed: {e}")
+
+    await reset_all_cameras_offline()
 
     await runtime.start()
     try:

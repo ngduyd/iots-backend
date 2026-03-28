@@ -3,12 +3,10 @@ from typing import Optional
 
 from urllib.parse import parse_qs, urlparse
 
-
 from app.schemas import (
     CameraCreateRequest,
     CameraListResponse,
     CameraResponse,
-    CameraVerifyStreamRequest,
     ResponseMessage,
 )
 from app.security import get_current_user_record, is_superadmin, require_admin
@@ -22,7 +20,6 @@ from app.services.database import (
     get_cameras as get_cameras_db,
     reset_camera_secret as reset_camera_secret_db,
     update_camera as update_camera_db,
-    verify_camera_access_request as verify_camera_access_request_db,
     verify_camera_access_request_by_token as verify_camera_access_by_token_db,
     verify_camera_stream as verify_camera_stream_db,
     update_camera_status as update_camera_status_db,

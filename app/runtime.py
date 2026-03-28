@@ -146,13 +146,12 @@ class MqttRuntime:
         print(f"[SCHEDULER] {len(db_ids)} active cameras (+{len(new_ids)} new, -{len(removed_ids)} removed)")
 
     async def _camera_list_refresher(self):
-        """Fetch camera list initially on startup.
-        Subsequent dynamic updates happen via API webhooks instead of periodic polling.
+        """Camera list is managed dynamically via API webhooks (verify-stream / end-stream).
+        No polling needed — cameras start offline and join the schedule only when they connect.
         """
-        await self._fetch_and_merge_cameras()
-        # while self.running:
-        #     await asyncio.sleep(config.CAMERA_LIST_REFRESH_SECONDS)
-        #     await self._fetch_and_merge_cameras()
+        # Initial fetch intentionally skipped: all cameras are reset to 'offline' on startup.
+        # Cameras are added to the schedule dynamically when they call /verify-stream.
+        pass
 
     # Main scheduler loop using heapq and fire-and-forget tasks
     async def _camera_scheduler(self):
