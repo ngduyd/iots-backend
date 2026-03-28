@@ -13,7 +13,7 @@ from app.core import config
 from app.services.database import save_image_analysis, get_camera
 
 
-# PEOPLE_COUNT_API_URL is loaded from config
+PEOPLE_COUNT_API_URL = f"{config.AI_API_URL}/count-people"
 PEOPLE_COUNT_TIMEOUT_SECONDS = 4
 
 # In-memory cache for camera info (60s TTL to reduce DB load)
@@ -81,7 +81,7 @@ async def _call_people_count_service(camera_id: str) -> int | None:
     try:
         response_text = await asyncio.to_thread(
             _post_form,
-            config.PEOPLE_COUNT_API_URL,
+            PEOPLE_COUNT_API_URL,
             {"camera_id": camera_id},
             PEOPLE_COUNT_TIMEOUT_SECONDS,
         )

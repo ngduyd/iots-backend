@@ -4,6 +4,7 @@ import json
 from urllib import error, request
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from app.core import config
 
 from app.schemas import SensorCreateRequest, SensorListResponse, SensorStatus, SensorValue, SensorValueListResponse, ResponseMessage
 from app.security import get_current_user_record, is_superadmin, require_admin
@@ -11,7 +12,7 @@ from app.services.database import add_sensor as create_sensor, get_branch, get_s
 
 router = APIRouter(prefix="/api/sensors", tags=["sensors"])
 
-PREDICT_API_URL = "http://100.123.114.97:9000/predict"
+PREDICT_API_URL = f"{config.AI_API_URL}/predict"
 PREDICT_ROWS = 120
 PREDICT_TIMEOUT_SECONDS = 20
 
