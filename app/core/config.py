@@ -42,6 +42,7 @@ CAMERA_LIST_REFRESH_SECONDS = int(os.environ.get("CAMERA_LIST_REFRESH_SECONDS", 
 
 AI_API_URL = os.environ.get("AI_API_URL", "http://100.123.114.97:9000/api/v1")
 
+DEFAULT_CO2_MIN = int(os.environ.get("DEFAULT_CO2_MIN", 400))
 DEFAULT_CO2_MAX = int(os.environ.get("DEFAULT_CO2_MAX", 1000))
 DEFAULT_TEMP_MIN = float(os.environ.get("DEFAULT_TEMP_MIN", 18.0))
 DEFAULT_TEMP_MAX = float(os.environ.get("DEFAULT_TEMP_MAX", 35.0))
