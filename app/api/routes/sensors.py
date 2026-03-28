@@ -69,7 +69,7 @@ async def get_sensor_by_id(
 @router.get("/{sensor_id}/values", response_model=ResponseMessage)
 async def list_sensor_values(
     sensor_id: str,
-    limit: int = Query(default=100, ge=1, le=1000),
+    limit: int = Query(default=1000000, ge=1, le=1000000),
     from_time: datetime | None = Query(default=None),
     to_time: datetime | None = Query(default=None),
     current_user: dict = Depends(get_current_user_record),
