@@ -38,3 +38,5 @@ CAMERA_MAX_CONCURRENT_CAPTURES = int(os.environ.get("CAMERA_MAX_CONCURRENT_CAPTU
 CAMERA_CAPTURE_TASK_TIMEOUT_SECONDS = int(os.environ.get("CAMERA_CAPTURE_TASK_TIMEOUT_SECONDS", 20))
 CAMERA_CAPTURE_JITTER_SECONDS = int(os.environ.get("CAMERA_CAPTURE_JITTER_SECONDS", 1))
 RTMP_BASE_URL = os.environ.get("RTMP_BASE_URL", "rtmp://your-rtmp-server:1935/live")
+
+API_SNAPSHOT_URL = os.environ.get("API_SNAPSHOT_URL", "http://your-api-server/snapshot")
