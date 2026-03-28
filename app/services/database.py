@@ -532,55 +532,46 @@ async def get_camera_by_branch(branch_id):
 
 async def get_sensor_values(sensor_id, limit=1000000, group_id=None, from_time: datetime | None = None, to_time: datetime | None = None):
     try:
-        where_clauses = ["s.sensor_id = $1", "s.deleted_at IS NULL"]
+        val_where = ["v.sensor_id = $1"]
         params = [sensor_id]
 
-        if group_id is not None:
-            where_clauses.append(f"b.group_id = ${len(params) + 1}")
-            params.append(group_id)
-
         if from_time is not None:
-            where_clauses.append(f"v.created_at >= ${len(params) + 1}")
+            val_where.append(f"v.created_at >= ${len(params) + 1}")
             params.append(from_time)
 
         if to_time is not None:
-            where_clauses.append(f"v.created_at <= ${len(params) + 1}")
+            val_where.append(f"v.created_at <= ${len(params) + 1}")
             params.append(to_time)
 
-        limit_placeholder = f"${len(params) + 1}"
+        limit_idx = len(params) + 1
         params.append(limit)
 
         if group_id is not None:
-            return await _fetch(
-                f"""
-                WITH filtered_values AS (
-                    SELECT sensor_id, value, created_at
-                    FROM values v
-                    WHERE sensor_id = $1
-                      AND {' AND '.join([c.replace('s.','').replace('v.','') for c in where_clauses if 's.sensor_id' not in c and 'deleted_at' not in c])}
-                    ORDER BY created_at DESC
-                    LIMIT {limit_placeholder}
-                )
+            group_idx = len(params) + 1
+            params.append(group_id)
+            query = f"""
                 SELECT v.sensor_id, v.value, v.created_at
-                FROM filtered_values v
+                FROM values v
                 JOIN sensors s ON s.sensor_id = v.sensor_id
                 JOIN branches b ON b.branch_id = s.branch_id
-                WHERE s.deleted_at IS NULL AND b.group_id = ${params.index(group_id) + 1};
-                """,
-                *params,
-            )
+                WHERE {' AND '.join(val_where)}
+                  AND s.deleted_at IS NULL
+                  AND b.group_id = ${group_idx}
+                ORDER BY v.created_at DESC
+                LIMIT ${limit_idx};
+            """
+        else:
+            query = f"""
+                SELECT v.sensor_id, v.value, v.created_at
+                FROM values v
+                JOIN sensors s ON s.sensor_id = v.sensor_id
+                WHERE {' AND '.join(val_where)}
+                  AND s.deleted_at IS NULL
+                ORDER BY v.created_at DESC
+                LIMIT ${limit_idx};
+            """
 
-        return await _fetch(
-            f"""
-            SELECT v.sensor_id, v.value, v.created_at
-            FROM values v
-            JOIN sensors s ON s.sensor_id = v.sensor_id
-            WHERE {' AND '.join(where_clauses)}
-            ORDER BY v.created_at DESC
-            LIMIT {limit_placeholder};
-            """,
-            *params,
-        )
+        return await _fetch(query, *params)
     except Exception as e:
         print(f"Error getting sensor values: {e}")
         return []
