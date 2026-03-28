@@ -246,7 +246,7 @@ async def init_db():
                 )
                 await connection.execute(
                     """
-                    CREATE INDEX IF NOT EXISTS idx_sensor_time ON values(sensor_id, created_at);
+                    CREATE INDEX IF NOT EXISTS idx_sensor_time_desc ON values(sensor_id, created_at DESC);
                     """
                 )
                 await connection.execute(
@@ -553,20 +553,26 @@ async def get_sensor_values(sensor_id, limit=1000000, group_id=None, from_time: 
         if group_id is not None:
             return await _fetch(
                 f"""
-                SELECT s.sensor_id, v.value, v.created_at
-                FROM values v
+                WITH filtered_values AS (
+                    SELECT sensor_id, value, created_at
+                    FROM values v
+                    WHERE sensor_id = $1
+                      AND {' AND '.join([c.replace('s.','').replace('v.','') for c in where_clauses if 's.sensor_id' not in c and 'deleted_at' not in c])}
+                    ORDER BY created_at DESC
+                    LIMIT {limit_placeholder}
+                )
+                SELECT v.sensor_id, v.value, v.created_at
+                FROM filtered_values v
                 JOIN sensors s ON s.sensor_id = v.sensor_id
                 JOIN branches b ON b.branch_id = s.branch_id
-                WHERE {' AND '.join(where_clauses)}
-                ORDER BY v.created_at DESC
-                LIMIT {limit_placeholder};
+                WHERE s.deleted_at IS NULL AND b.group_id = ${params.index(group_id) + 1};
                 """,
                 *params,
             )
 
         return await _fetch(
             f"""
-            SELECT s.sensor_id, v.value, v.created_at
+            SELECT v.sensor_id, v.value, v.created_at
             FROM values v
             JOIN sensors s ON s.sensor_id = v.sensor_id
             WHERE {' AND '.join(where_clauses)}
