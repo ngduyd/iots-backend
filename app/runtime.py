@@ -1,10 +1,13 @@
 import asyncio
+import heapq
 import random
+import time as _time
+import concurrent.futures
 
 from app.core import config
 from app.services.database import get_active_cameras, save_messages_batch
 from app.services.mqtt_client import create_mqtt_client
-from app.services.camera import process_camera_stream
+from app.services.image_analysis_service import process_camera_frame
 
 
 class MqttRuntime:
@@ -12,16 +15,29 @@ class MqttRuntime:
         self.client = None
         self.loop = None
         self.message_queue = None
-        self._db_worker_task = None
-        self._camera_scheduler_task = None
-        self._camera_running = set()
-        self._camera_next_run = {}
-        self._camera_capture_tasks = set()
-        self._camera_semaphore = asyncio.Semaphore(max(1, config.CAMERA_MAX_CONCURRENT_CAPTURES))
         self.running = False
 
+        # Camera scheduler heap: (execution_time, camera_id)
+        self._camera_heap: list = []
+        # Currently scheduled camera IDs (O(1) lookup)
+        self._scheduled_ids: set = set()
+        # Count of concurrently running AI tasks
+        self._active_count: int = 0
+
+        self._db_worker_task = None
+        self._camera_scheduler_task = None
+        self._camera_refresh_task = None
+
+    # Lifecycle management
     async def start(self):
-        self.loop = asyncio.get_event_loop()
+        self.loop = asyncio.get_running_loop()
+
+        # Expand thread pool to prevent asyncio.to_thread() from blocking
+        pool_size = max(50, config.CAMERA_MAX_INFLIGHT * 2)
+        self.loop.set_default_executor(
+            concurrent.futures.ThreadPoolExecutor(max_workers=pool_size)
+        )
+
         self.message_queue = asyncio.Queue(maxsize=max(1, config.MQTT_QUEUE_MAXSIZE))
 
         print("Connecting to MQTT broker...")
@@ -30,6 +46,7 @@ class MqttRuntime:
         self.client.loop_start()
 
         self._db_worker_task = asyncio.create_task(self._db_worker())
+        self._camera_refresh_task = asyncio.create_task(self._camera_list_refresher())
         self._camera_scheduler_task = asyncio.create_task(self._camera_scheduler())
         self.running = True
         print("MQTT runtime started")
@@ -37,24 +54,17 @@ class MqttRuntime:
     async def stop(self):
         self.running = False
 
-        for task in (self._db_worker_task, self._camera_scheduler_task):
+        for task in (
+            self._db_worker_task,
+            self._camera_scheduler_task,
+            self._camera_refresh_task,
+        ):
             if task:
                 task.cancel()
                 try:
                     await task
                 except asyncio.CancelledError:
                     pass
-
-        for task in list(self._camera_capture_tasks):
-            task.cancel()
-        for task in list(self._camera_capture_tasks):
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-        self._camera_capture_tasks.clear()
-        self._camera_running.clear()
-        self._camera_next_run.clear()
 
         if self.client:
             self.client.loop_stop()
@@ -63,6 +73,7 @@ class MqttRuntime:
 
         print("MQTT runtime stopped")
 
+    # DB worker task to save MQTT data in batches
     async def _db_worker(self):
         batch_size = max(1, config.DB_WORKER_BATCH_SIZE)
         flush_interval = max(0.01, config.DB_WORKER_FLUSH_INTERVAL_MS / 1000.0)
@@ -71,9 +82,9 @@ class MqttRuntime:
             sensor_id, payload, received_at = await self.message_queue.get()
             batch = [(sensor_id, payload, received_at)]
 
-            deadline = asyncio.get_running_loop().time() + flush_interval
+            deadline = self.loop.time() + flush_interval
             while len(batch) < batch_size:
-                remain = deadline - asyncio.get_running_loop().time()
+                remain = deadline - self.loop.time()
                 if remain <= 0:
                     break
                 try:
@@ -85,78 +96,102 @@ class MqttRuntime:
             try:
                 await save_messages_batch(batch)
             except Exception as e:
-                print(f"Error saving message to db: {e}")
+                print(f"[DB] Error saving batch: {e}")
             finally:
                 for _ in batch:
                     self.message_queue.task_done()
 
+    # Camera list management tasks
+    async def _fetch_and_merge_cameras(self):
+        """Fetch cameras from DB and update the heap for new or removed ones."""
+        try:
+            rows = await get_active_cameras()
+        except Exception as e:
+            print(f"[SCHEDULER] Error fetching cameras from DB: {e}")
+            return
+
+        db_ids = {row["camera_id"] for row in rows}
+        now = self.loop.time()
+
+        new_ids = db_ids - self._scheduled_ids
+        for camera_id in new_ids:
+            jitter = random.uniform(0, max(0, config.CAMERA_CAPTURE_JITTER_SECONDS))
+            heapq.heappush(self._camera_heap, (now + jitter, camera_id))
+            self._scheduled_ids.add(camera_id)
+            print(f"[SCHEDULER] Adding camera {camera_id} (starting in {jitter:.1f}s)")
+
+        # Stale cameras remain in heap but are skipped when popped (lazy removal)
+        removed_ids = self._scheduled_ids - db_ids
+        for camera_id in removed_ids:
+            self._scheduled_ids.discard(camera_id)
+            print(f"[SCHEDULER] Removing camera {camera_id} from schedule")
+
+        print(f"[SCHEDULER] {len(db_ids)} active cameras (+{len(new_ids)} new, -{len(removed_ids)} removed)")
+
+    async def _camera_list_refresher(self):
+        """Refresh camera list every CAMERA_LIST_REFRESH_SECONDS."""
+        await self._fetch_and_merge_cameras()
+        while self.running:
+            await asyncio.sleep(config.CAMERA_LIST_REFRESH_SECONDS)
+            await self._fetch_and_merge_cameras()
+
+    # Main scheduler loop using heapq and fire-and-forget tasks
     async def _camera_scheduler(self):
-        """Schedule one-shot camera captures with bounded concurrency.
-
-        This avoids creating one infinite worker loop per camera, which is heavy
-        when many cameras are active.
         """
-        while True:
-            try:
-                rows = await get_active_cameras()
-                active = {row["camera_id"]: (row.get("secret") or "") for row in rows}
+        Priority queue based scheduler. 
+        Runs cameras independently without blocking.
+        Deleted cameras are skipped when their turn comes.
+        """
+        # Wait for initial load
+        await asyncio.sleep(0.1)
 
-                now = asyncio.get_running_loop().time()
-                desired_ids = set(active.keys())
+        while self.running:
+            now = self.loop.time()
 
-                for camera_id in list(self._camera_next_run.keys()):
-                    if camera_id not in desired_ids:
-                        self._camera_next_run.pop(camera_id, None)
-                        self._camera_running.discard(camera_id)
+            while self._camera_heap and self._camera_heap[0][0] <= now:
+                due_at, camera_id = heapq.heappop(self._camera_heap)
 
-                for camera_id in desired_ids:
-                    if camera_id not in self._camera_next_run:
-                        jitter = random.uniform(0, max(0, config.CAMERA_CAPTURE_JITTER_SECONDS))
-                        self._camera_next_run[camera_id] = now + jitter
+                # Skip removed cameras
+                if camera_id not in self._scheduled_ids:
+                    continue
 
-                due_ids = [
-                    camera_id
-                    for camera_id, due_at in self._camera_next_run.items()
-                    if due_at <= now and camera_id in desired_ids and camera_id not in self._camera_running
-                ]
+                # Soft limit on concurrent tasks
+                if self._active_count >= config.CAMERA_MAX_INFLIGHT:
+                    heapq.heappush(self._camera_heap, (now + 0.5, camera_id))
+                    break
 
-                for camera_id in due_ids:
-                    self._camera_running.add(camera_id)
-                    self._camera_next_run[camera_id] = now + max(1, config.CAMERA_CAPTURE_INTERVAL_SECONDS)
-                    print(f"[SCHEDULER] Camera {camera_id} queued (next at +{config.CAMERA_CAPTURE_INTERVAL_SECONDS}s)")
-                    task = asyncio.create_task(self._capture_camera_once(camera_id, active[camera_id]))
-                    self._camera_capture_tasks.add(task)
-                    task.add_done_callback(lambda t, cid=camera_id: self._on_capture_done(cid, t))
-            except Exception as e:
-                print(f"Error in camera scheduler: {e}")
+                self._active_count += 1
+                task = asyncio.create_task(self._run_one(camera_id))
+                task.add_done_callback(self._on_task_done)
 
-            await asyncio.sleep(max(1, config.CAMERA_SCHEDULER_POLL_SECONDS))
+                # Schedule next run
+                next_run = now + max(1, config.CAMERA_CAPTURE_INTERVAL_SECONDS)
+                heapq.heappush(self._camera_heap, (next_run, camera_id))
 
-    async def _capture_camera_once(self, camera_id: str, secret: str):
-        import time
-        start_time = time.time()
-        async with self._camera_semaphore:
-            try:
-                await asyncio.wait_for(
-                    process_camera_stream(camera_id, secret),
-                    timeout=max(1, config.CAMERA_CAPTURE_TASK_TIMEOUT_SECONDS),
-                )
-                elapsed = time.time() - start_time
-                print(f"[TIMING] Camera {camera_id} capture completed in {elapsed:.2f}s")
-            except asyncio.TimeoutError:
-                elapsed = time.time() - start_time
-                print(f"[TIMING] Camera {camera_id} capture TIMEOUT after {elapsed:.2f}s")
-            except Exception as e:
-                elapsed = time.time() - start_time
-                print(f"[TIMING] Camera {camera_id} error after {elapsed:.2f}s: {e}")
+            # Sleep until next task (max 1s to remain responsive)
+            if self._camera_heap:
+                sleep_for = self._camera_heap[0][0] - self.loop.time()
+                await asyncio.sleep(max(0.0, min(sleep_for, 1.0)))
+            else:
+                await asyncio.sleep(1.0)
 
-    def _on_capture_done(self, camera_id: str, task: asyncio.Task):
-        self._camera_capture_tasks.discard(task)
-        self._camera_running.discard(camera_id)
-
+    def _on_task_done(self, task: asyncio.Task):
+        self._active_count -= 1
         try:
             task.result()
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            pass
+        except (asyncio.CancelledError, Exception):
+            pass  # Logged within _run_one
+
+    async def _run_one(self, camera_id: str):
+        """Analyze a single camera - independent task with hard timeout."""
+        t0 = _time.monotonic()
+        try:
+            await asyncio.wait_for(
+                process_camera_frame(camera_id),
+                timeout=config.CAMERA_CAPTURE_TASK_TIMEOUT_SECONDS,
+            )
+            print(f"[SCHEDULER] {camera_id} completed in {_time.monotonic() - t0:.2f}s")
+        except asyncio.TimeoutError:
+            print(f"[SCHEDULER] {camera_id} TIMEOUT after {_time.monotonic() - t0:.2f}s")
+        except Exception as e:
+            print(f"[SCHEDULER] {camera_id} error after {_time.monotonic() - t0:.2f}s: {e}")
