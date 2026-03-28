@@ -28,7 +28,7 @@ from app.services.database import (
     update_camera_status as update_camera_status_db,
     end_camera_stream as end_camera_stream_db,
 )
-from app.runtime_instance import runtime
+from app.runtime import runtime
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 

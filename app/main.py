@@ -10,7 +10,7 @@ from app.api.routes.groups import router as groups_router
 from app.api.routes.sensors import router as sensors_router
 from app.api.routes.users import current_user_router, router as users_router
 from app.core import config
-from app.runtime_instance import runtime
+from app.runtime import runtime
 from app.services.database import close_db, ensure_default_admin_user, init_db
 
 

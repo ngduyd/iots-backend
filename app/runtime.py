@@ -214,3 +214,7 @@ class MqttRuntime:
             print(f"[SCHEDULER] {camera_id} TIMEOUT after {_time.monotonic() - t0:.2f}s")
         except Exception as e:
             print(f"[SCHEDULER] {camera_id} error after {_time.monotonic() - t0:.2f}s: {e}")
+
+
+# Singleton instance — import from here to avoid circular imports with app.main
+runtime = MqttRuntime()
