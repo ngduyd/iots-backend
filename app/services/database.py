@@ -658,8 +658,7 @@ async def get_latest_people_count_by_branch(branch_id: int):
             WHERE c.branch_id = $1
               AND c.status = 'online'
               AND ia.created_at >= NOW() - INTERVAL '11 minutes'
-            ORDER BY ia.created_at DESC
-            LIMIT 1;
+            ORDER BY ia.created_at DESC;
             """,
             branch_id,
         )
