@@ -384,7 +384,7 @@ async def export_branch_data(
             output.truncate(0)
             output.seek(0)
 
-    filename = f"branch_{branch_id}_export_{datetime.now().strftime('%Y% Lakewood%m%d_%H%M%S')}.csv"
+    filename = f"branch_{branch_id}_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(
         generate_csv(),
         media_type="text/csv",
