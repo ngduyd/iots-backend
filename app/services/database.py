@@ -530,7 +530,7 @@ async def get_camera_by_branch(branch_id):
         return None
 
 
-async def get_sensor_values(sensor_id, limit=100, group_id=None, from_time: datetime | None = None, to_time: datetime | None = None):
+async def get_sensor_values(sensor_id, limit=1000000, group_id=None, from_time: datetime | None = None, to_time: datetime | None = None):
     try:
         where_clauses = ["s.sensor_id = $1", "s.deleted_at IS NULL"]
         params = [sensor_id]
