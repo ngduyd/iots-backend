@@ -648,14 +648,16 @@ def _generate_camera_secret():
 
 
 async def get_latest_people_count_by_branch(branch_id: int):
-    """Return the most recent people_count from image_analysis for any online camera in the branch."""
+    """Return the most recent people_count from the last 10 minutes for any online camera in the branch."""
     try:
         return await _fetchrow(
             """
             SELECT ia.people_count, ia.created_at, ia.camera_id
             FROM image_analysis ia
             JOIN cameras c ON c.camera_id = ia.camera_id
-            WHERE c.branch_id = $1 AND c.status = 'online'
+            WHERE c.branch_id = $1
+              AND c.status = 'online'
+              AND ia.created_at >= NOW() - INTERVAL '11 minutes'
             ORDER BY ia.created_at DESC
             LIMIT 1;
             """,
