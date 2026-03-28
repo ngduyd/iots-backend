@@ -255,16 +255,15 @@ async def predict_branch(
             detail=f"Not enough sensor data. Required {PREDICT_ROWS} rows, got {len(rows)}.",
         )
 
-    # Get latest people count from the camera — same {value, created_at} format as sensor rows
-    people_count_row = await get_latest_people_count_by_branch(branch_id)
-    people = (
+    # Get people count records from the last 10 minutes
+    people_rows = await get_latest_people_count_by_branch(branch_id)
+    people = [
         {
-            "value": people_count_row["people_count"],
-            "created_at": people_count_row["created_at"].isoformat() if people_count_row.get("created_at") else None,
+            "value": row["people_count"],
+            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
         }
-        if people_count_row
-        else None
-    )
+        for row in people_rows
+    ] if people_rows else []
 
     # Build payload
     chronological_rows = list(reversed(rows))

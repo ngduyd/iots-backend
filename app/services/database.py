@@ -648,9 +648,9 @@ def _generate_camera_secret():
 
 
 async def get_latest_people_count_by_branch(branch_id: int):
-    """Return the most recent people_count from the last 10 minutes for any online camera in the branch."""
+    """Return the people_count history from the last 10 minutes for any online camera in the branch."""
     try:
-        return await _fetchrow(
+        return await _fetch(
             """
             SELECT ia.people_count, ia.created_at, ia.camera_id
             FROM image_analysis ia
@@ -664,7 +664,7 @@ async def get_latest_people_count_by_branch(branch_id: int):
         )
     except Exception as e:
         print(f"Error getting latest people count for branch {branch_id}: {e}")
-        return None
+        return []
 
 async def get_sensor_name(sensor_id):
     try:
