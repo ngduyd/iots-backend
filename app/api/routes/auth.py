@@ -1,8 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
-
 from fastapi import APIRouter, HTTPException, Request, Response, status
-
 from app.schemas import LoginRequest, LoginResponse, ResponseMessage
 from app.core import config
 from app.security import clear_user_session, create_user_session, verify_login
@@ -19,12 +17,10 @@ from app.services.database import (
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-
 @router.post("/login", response_model=ResponseMessage)
 async def login(payload: LoginRequest, request: Request, response: Response):
     user = await authenticate_user(payload.username, payload.password)
 
-    # Backward compatibility for bootstrap credentials from env.
     if user is None and verify_login(payload.username, payload.password):
         user = await get_user_by_username(payload.username)
         if user is None:

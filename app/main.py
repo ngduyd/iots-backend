@@ -1,8 +1,6 @@
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
-
 from app.api.routes.auth import router as auth_router
 from app.api.routes.branches import router as branches_router
 from app.api.routes.cameras import router as cameras_router

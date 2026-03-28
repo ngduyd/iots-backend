@@ -4,10 +4,8 @@ import io
 import json
 from datetime import datetime
 from urllib import error, request
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-
 from app.core import config
 from app.schemas import (
     BranchCreateByAdminRequest,
@@ -106,6 +104,7 @@ async def list_branch_sensors(
         message="Branch sensors retrieved successfully",
         data=SensorListResponse(count=len(items), items=items),
     )
+    
 
 @router.get("/{branch_id}/cameras", response_model=ResponseMessage)
 async def list_branch_cameras(
@@ -230,7 +229,6 @@ async def predict_branch(
     if not is_superadmin(current_user) and current_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
-    # Check branch access
     branch = await get_branch_db(
         branch_id,
         None if is_superadmin(current_user) else current_user.get("group_id"),
@@ -238,7 +236,6 @@ async def predict_branch(
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
 
-    # Check branch has an online camera
     camera = await get_camera_by_branch_db(branch_id)
     if not camera or camera.get("status") != "online":
         raise HTTPException(
@@ -246,14 +243,12 @@ async def predict_branch(
             detail="Branch does not have an online camera. Cannot predict.",
         )
 
-    # Get sensors of the branch, use the first one for prediction
     sensors = await get_sensors_by_branch_db(branch_id=branch_id, limit=1)
     if not sensors:
         raise HTTPException(status_code=400, detail="Branch has no sensors")
     sensor = sensors[0]
     sensor_id = sensor["sensor_id"]
 
-    # Check sensor has enough data
     rows = await get_sensor_values(sensor_id=sensor_id, limit=PREDICT_ROWS)
     if len(rows) < PREDICT_ROWS:
         raise HTTPException(
@@ -261,7 +256,6 @@ async def predict_branch(
             detail=f"Not enough sensor data. Required {PREDICT_ROWS} rows, got {len(rows)}.",
         )
 
-    # Get people count records from the last 10 minutes
     people_rows = await get_latest_people_count_by_branch(branch_id)
     people = [
         {
@@ -271,7 +265,6 @@ async def predict_branch(
         for row in people_rows
     ] if people_rows else []
 
-    # Build payload
     chronological_rows = list(reversed(rows))
     values = [
         {
@@ -338,14 +331,12 @@ async def export_branch_data(
 
     sensor_values, people_counts = await get_branch_data_for_export(branch_id, from_time, to_time)
 
-    # Determine all unique keys in JSON values across all sensors to create columns
     extra_keys = set()
     for row in sensor_values:
         if isinstance(row["value"], dict):
             extra_keys.update(row["value"].keys())
     sorted_keys = sorted(list(extra_keys))
 
-    # Threshold-based matching for people counts (match to nearest sensor reading if within 30s)
     def get_closest_people_count(sensor_ts):
         if not people_counts:
             return ""
@@ -390,7 +381,6 @@ async def export_branch_data(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
-
 
 
 def _send_predict_request(req: request.Request) -> str:

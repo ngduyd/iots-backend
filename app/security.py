@@ -1,7 +1,5 @@
 import hmac
-
 from fastapi import Depends, HTTPException, Request, status
-
 from app.core import config
 from app.services.database import get_active_user_session, get_user
 

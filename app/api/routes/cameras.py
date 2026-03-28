@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Form, Header
 from typing import Optional
-
 from urllib.parse import parse_qs, urlparse
-
 from app.schemas import (
     CameraCreateRequest,
     CameraListResponse,
@@ -364,8 +362,6 @@ async def set_camera_status(
     camera_id: str,
     status: str = Query(...),
 ):
-    # This route might be called by an internal AI server or stream server.
-    # Optionally add admin checking if needed, but for internal callbacks it might just need the camera_id.
     existing_camera = await get_camera_db(camera_id=camera_id)
     if not existing_camera:
         raise HTTPException(status_code=404, detail="Camera not found")

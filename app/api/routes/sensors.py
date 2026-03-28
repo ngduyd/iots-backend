@@ -1,8 +1,5 @@
 from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException, Query
-from app.core import config
-
 from app.schemas import SensorCreateRequest, SensorListResponse, SensorStatus, SensorValue, SensorValueListResponse, ResponseMessage
 from app.security import get_current_user_record, is_superadmin, require_admin
 from app.services.database import add_sensor as create_sensor, get_branch, get_sensor, get_sensor_name, get_sensor_values, get_sensors, update_sensor as update_sensor_db

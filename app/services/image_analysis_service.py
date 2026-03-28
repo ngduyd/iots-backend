@@ -1,14 +1,8 @@
-"""
-Service for handling camera image analysis and people counting.
-Signals AI server to pull camera frames and returns the count.
-"""
 import asyncio
 import json
 import os
 from datetime import datetime
-
 import requests
-
 from app.core import config
 from app.services.database import save_image_analysis, get_camera
 
@@ -16,7 +10,6 @@ from app.services.database import save_image_analysis, get_camera
 PEOPLE_COUNT_API_URL = f"{config.AI_API_URL}/count-people"
 PEOPLE_COUNT_TIMEOUT_SECONDS = 4
 
-# In-memory cache for camera info (60s TTL to reduce DB load)
 _camera_cache: dict = {}
 _camera_cache_time: dict = {}
 

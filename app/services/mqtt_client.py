@@ -1,9 +1,7 @@
-from datetime import datetime, timezone
 import asyncio
 import queue as pyqueue
-
 import paho.mqtt.client as mqtt
-
+from datetime import datetime, timezone
 from app.core import config
 from app.services.database import update_sensor_status
 
@@ -34,7 +32,6 @@ def on_message(client, userdata, msg):
             try:
                 message_queue.put_nowait((sensor_id, payload, received_at))
             except pyqueue.Full:
-                # Drop newest message when backlog is too high to protect memory.
                 pass
 
         loop.call_soon_threadsafe(_enqueue)

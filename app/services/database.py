@@ -1,13 +1,11 @@
 import asyncio
-from datetime import datetime
 import hashlib
 import json
 import os
 import time
-
 import asyncpg
-
 from app.core import config
+from datetime import datetime
 
 db_pool = None
 _pool_lock = asyncio.Lock()
@@ -602,7 +600,6 @@ async def add_sensor(sensor_name=None, branch_id=None):
 async def get_branch_data_for_export(branch_id: int, from_time: datetime, to_time: datetime):
     """Fetch all values for all sensors in a branch, plus people count history for CSV export."""
     try:
-        # 1. Get all sensor values for this branch in time range
         sensor_values = await _fetch(
             """
             SELECT v.sensor_id, s.name as sensor_name, v.value, v.created_at
@@ -619,7 +616,6 @@ async def get_branch_data_for_export(branch_id: int, from_time: datetime, to_tim
             to_time,
         )
 
-        # 2. Get people count history for this branch in time range
         people_counts = await _fetch(
             """
             SELECT ia.people_count, ia.created_at
