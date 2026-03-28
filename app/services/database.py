@@ -798,15 +798,33 @@ async def verify_camera_stream(camera_id, secret):
     try:
         return await _fetchrow(
             """
-            SELECT camera_id, branch_id, name
-            FROM cameras
-            WHERE camera_id = $1 AND secret = $2;
+            UPDATE cameras
+            SET status = 'online'
+            WHERE camera_id = $1 AND secret = $2
+            RETURNING camera_id, branch_id, name;
             """,
             camera_id,
             secret,
         )
     except Exception as e:
         print(f"Error verifying camera stream: {e}")
+        return None
+
+
+async def end_camera_stream(camera_id, secret):
+    try:
+        return await _fetchrow(
+            """
+            UPDATE cameras
+            SET status = 'offline'
+            WHERE camera_id = $1 AND secret = $2
+            RETURNING camera_id, branch_id, name;
+            """,
+            camera_id,
+            secret,
+        )
+    except Exception as e:
+        print(f"Error ending camera stream: {e}")
         return None
 
 

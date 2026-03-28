@@ -101,6 +101,23 @@ class MqttRuntime:
                 for _ in batch:
                     self.message_queue.task_done()
 
+    def add_camera_to_schedule(self, camera_id: str):
+        """Dynamically add a camera to the scheduling queue."""
+        if not self.running or not self.loop:
+            return
+        if camera_id not in self._scheduled_ids:
+            now = self.loop.time()
+            jitter = random.uniform(0, max(0, config.CAMERA_CAPTURE_JITTER_SECONDS))
+            heapq.heappush(self._camera_heap, (now + jitter, camera_id))
+            self._scheduled_ids.add(camera_id)
+            print(f"[SCHEDULER] Dynamically added camera {camera_id} (starting in {jitter:.1f}s)")
+
+    def remove_camera_from_schedule(self, camera_id: str):
+        """Dynamically remove a camera from the scheduling queue."""
+        if camera_id in self._scheduled_ids:
+            self._scheduled_ids.discard(camera_id)
+            print(f"[SCHEDULER] Dynamically removed camera {camera_id} from schedule")
+
     # Camera list management tasks
     async def _fetch_and_merge_cameras(self):
         """Fetch cameras from DB and update the heap for new or removed ones."""
@@ -129,11 +146,13 @@ class MqttRuntime:
         print(f"[SCHEDULER] {len(db_ids)} active cameras (+{len(new_ids)} new, -{len(removed_ids)} removed)")
 
     async def _camera_list_refresher(self):
-        """Refresh camera list every CAMERA_LIST_REFRESH_SECONDS."""
+        """Fetch camera list initially on startup.
+        Subsequent dynamic updates happen via API webhooks instead of periodic polling.
+        """
         await self._fetch_and_merge_cameras()
-        while self.running:
-            await asyncio.sleep(config.CAMERA_LIST_REFRESH_SECONDS)
-            await self._fetch_and_merge_cameras()
+        # while self.running:
+        #     await asyncio.sleep(config.CAMERA_LIST_REFRESH_SECONDS)
+        #     await self._fetch_and_merge_cameras()
 
     # Main scheduler loop using heapq and fire-and-forget tasks
     async def _camera_scheduler(self):

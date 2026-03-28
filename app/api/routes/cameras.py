@@ -26,7 +26,9 @@ from app.services.database import (
     verify_camera_access_request_by_token as verify_camera_access_by_token_db,
     verify_camera_stream as verify_camera_stream_db,
     update_camera_status as update_camera_status_db,
+    end_camera_stream as end_camera_stream_db,
 )
+from app.main import runtime
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
 
@@ -39,6 +41,7 @@ async def verify_stream(
     row = await verify_camera_stream_db(camera_id=id, secret=secret)
     if not row:
         raise HTTPException(status_code=403, detail="Invalid stream credentials")
+    runtime.add_camera_to_schedule(id)
 
     return ResponseMessage(
         code=200,
@@ -54,6 +57,8 @@ async def end_stream(
     row = await end_camera_stream_db(camera_id=camera_id, secret=secret)
     if not row:
         raise HTTPException(status_code=403, detail="Invalid stream credentials")
+
+    runtime.remove_camera_from_schedule(camera_id)
 
     return ResponseMessage(
         code=200,
