@@ -241,7 +241,7 @@ async def predict_sensor_values(
         for row in chronological_rows
     ]
 
-    sensor_model_id = existing_sensor.get("model_id") or sensor_id
+    sensor_model_id = existing_sensor.get("model_id") or "default"
 
     payload = {
         "senser_id": sensor_id,
