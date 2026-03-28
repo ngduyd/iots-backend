@@ -1,5 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+import asyncio
+import json
+from urllib import error, request
 
+from app.core import config
 from app.schemas import (
     BranchCreateByAdminRequest,
     BranchCreateRequest,
@@ -15,10 +19,17 @@ from app.services.database import (
     delete_branch as delete_branch_db,
     get_branch as get_branch_db,
     get_branches as get_branches_db,
+    get_camera_by_branch as get_camera_by_branch_db,
     get_cameras_by_branch as get_cameras_by_branch_db,
+    get_latest_people_count_by_branch,
+    get_sensor_values,
     get_sensors_by_branch as get_sensors_by_branch_db,
     update_branch as update_branch_db,
 )
+
+PREDICT_API_URL = f"{config.AI_API_URL}/predict"
+PREDICT_ROWS = 125
+PREDICT_TIMEOUT_SECONDS = 20
 
 router = APIRouter(prefix="/api/branches", tags=["branches"])
 
@@ -203,3 +214,106 @@ async def delete_branch(branch_id: int, admin_user: dict = Depends(require_admin
         message="Branch deleted successfully",
         data=None
     )
+
+
+@router.get("/{branch_id}/predict", response_model=ResponseMessage)
+async def predict_branch(
+    branch_id: int,
+    current_user: dict = Depends(get_current_user_record),
+):
+    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+        raise HTTPException(status_code=403, detail="User is not assigned to any group")
+
+    # Check branch access
+    branch = await get_branch_db(
+        branch_id,
+        None if is_superadmin(current_user) else current_user.get("group_id"),
+    )
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+
+    # Check branch has an online camera
+    camera = await get_camera_by_branch_db(branch_id)
+    if not camera or camera.get("status") != "online":
+        raise HTTPException(
+            status_code=400,
+            detail="Branch does not have an online camera. Cannot predict.",
+        )
+
+    # Get sensors of the branch, use the first one for prediction
+    sensors = await get_sensors_by_branch_db(branch_id=branch_id, limit=1)
+    if not sensors:
+        raise HTTPException(status_code=400, detail="Branch has no sensors")
+    sensor = sensors[0]
+    sensor_id = sensor["sensor_id"]
+
+    # Check sensor has enough data
+    rows = await get_sensor_values(sensor_id=sensor_id, limit=PREDICT_ROWS)
+    if len(rows) < PREDICT_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not enough sensor data. Required {PREDICT_ROWS} rows, got {len(rows)}.",
+        )
+
+    # Get latest people count from the camera
+    people_count_row = await get_latest_people_count_by_branch(branch_id)
+    people_count = people_count_row["people_count"] if people_count_row else None
+    people_recorded_at = (
+        people_count_row["created_at"].isoformat()
+        if people_count_row and people_count_row.get("created_at")
+        else None
+    )
+
+    # Build payload
+    chronological_rows = list(reversed(rows))
+    values = [
+        {
+            "value": str(row["value"]) if row.get("value") is not None else None,
+            "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+        }
+        for row in chronological_rows
+    ]
+
+    payload = {
+        "senser_id": sensor_id,
+        "rows": values,
+        "model_id": "default",
+        "people_count": people_count,
+        "people_recorded_at": people_recorded_at,
+    }
+
+    req = request.Request(
+        PREDICT_API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        response_text = await asyncio.to_thread(_send_predict_request, req)
+        prediction_data = json.loads(response_text) if response_text else None
+    except error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+        raise HTTPException(
+            status_code=502,
+            detail=f"Prediction service returned HTTP {exc.code}: {body}",
+        )
+    except error.URLError as exc:
+        raise HTTPException(status_code=502, detail=f"Cannot connect to prediction service: {exc.reason}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="Prediction service returned invalid JSON")
+
+    return ResponseMessage(
+        code=200,
+        message="Prediction completed successfully",
+        data={
+            "prediction": prediction_data,
+            "people_count": people_count,
+            "people_recorded_at": people_recorded_at,
+        },
+    )
+
+
+def _send_predict_request(req: request.Request) -> str:
+    with request.urlopen(req, timeout=PREDICT_TIMEOUT_SECONDS) as response:
+        return response.read().decode("utf-8")

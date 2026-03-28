@@ -513,6 +513,23 @@ async def get_cameras_by_branch(branch_id, limit=100):
         return []
 
 
+async def get_camera_by_branch(branch_id):
+    """Return the single camera for a branch (branches have at most 1 camera)."""
+    try:
+        return await _fetchrow(
+            """
+            SELECT camera_id, branch_id, name, status, created_at
+            FROM cameras
+            WHERE branch_id = $1
+            LIMIT 1;
+            """,
+            branch_id,
+        )
+    except Exception as e:
+        print(f"Error getting camera by branch {branch_id}: {e}")
+        return None
+
+
 async def get_sensor_values(sensor_id, limit=100, group_id=None, from_time: datetime | None = None, to_time: datetime | None = None):
     try:
         where_clauses = ["s.sensor_id = $1", "s.deleted_at IS NULL"]
@@ -628,6 +645,25 @@ def _generate_camera_id():
 
 def _generate_camera_secret():
     return os.urandom(32).hex()
+
+
+async def get_latest_people_count_by_branch(branch_id: int):
+    """Return the most recent people_count from image_analysis for any online camera in the branch."""
+    try:
+        return await _fetchrow(
+            """
+            SELECT ia.people_count, ia.created_at, ia.camera_id
+            FROM image_analysis ia
+            JOIN cameras c ON c.camera_id = ia.camera_id
+            WHERE c.branch_id = $1 AND c.status = 'online'
+            ORDER BY ia.created_at DESC
+            LIMIT 1;
+            """,
+            branch_id,
+        )
+    except Exception as e:
+        print(f"Error getting latest people count for branch {branch_id}: {e}")
+        return None
 
 async def get_sensor_name(sensor_id):
     try:
