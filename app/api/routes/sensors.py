@@ -233,17 +233,20 @@ async def predict_sensor_values(
         )
 
     chronological_rows = list(reversed(rows))
-    lines = [
+    values = [
         {
+            "value": str(row["value"]) if row.get("value") is not None else None,
             "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
-            "value": row.get("value"),
         }
         for row in chronological_rows
     ]
 
+    sensor_model_id = existing_sensor.get("model_id") or sensor_id
+
     payload = {
-        "sensor_id": sensor_id,
-        "rows": lines,
+        "senser_id": sensor_id,
+        "rows": values,
+        "model_id": sensor_model_id,
     }
 
     req = request.Request(
