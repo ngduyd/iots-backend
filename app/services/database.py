@@ -213,6 +213,12 @@ async def init_db():
                 )
                 await connection.execute(
                     """
+                    ALTER TABLE cameras
+                    ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'offline' NOT NULL;
+                    """
+                )
+                await connection.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS camera_access_requests (
                         request_id SERIAL PRIMARY KEY,
                         camera_id VARCHAR(32) REFERENCES cameras(camera_id) ON DELETE CASCADE,
@@ -392,6 +398,17 @@ async def update_sensor_status(sensor_id, status):
         print(f"Error updating sensor status: {e}")
 
 
+async def update_camera_status(camera_id, status):
+    try:
+        await _execute(
+            "UPDATE cameras SET status = $1 WHERE camera_id = $2;",
+            status,
+            camera_id,
+        )
+    except Exception as e:
+        print(f"Error updating camera status: {e}")
+
+
 async def get_all_sensor_status() -> dict:
     try:
         rows = await _fetch("SELECT sensor_id, status FROM sensors WHERE deleted_at IS NULL;")
@@ -482,7 +499,7 @@ async def get_cameras_by_branch(branch_id, limit=100):
     try:
         return await _fetch(
             """
-            SELECT camera_id, branch_id, name, secret, created_at
+            SELECT camera_id, branch_id, name, secret, created_at, status
             FROM cameras
             WHERE branch_id = $1
             ORDER BY created_at DESC
@@ -631,7 +648,7 @@ async def get_cameras(limit=100, group_id=None):
         if group_id is not None:
             return await _fetch(
                 """
-                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.active, c.created_at
+                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.active, c.created_at, c.status
                 FROM cameras c
                 JOIN branches b ON b.branch_id = c.branch_id
                 WHERE b.group_id = $1
@@ -644,7 +661,7 @@ async def get_cameras(limit=100, group_id=None):
 
         return await _fetch(
             """
-            SELECT camera_id, branch_id, name, secret, active, created_at
+            SELECT camera_id, branch_id, name, secret, active, created_at, status
             FROM cameras
             ORDER BY camera_id DESC
             LIMIT $1;
@@ -660,7 +677,7 @@ async def get_active_cameras():
     try:
         return await _fetch(
             """
-            SELECT camera_id, branch_id, name, secret, active, created_at
+            SELECT camera_id, branch_id, name, secret, active, created_at, status
             FROM cameras
             WHERE active = TRUE
             ORDER BY camera_id DESC;
@@ -676,7 +693,7 @@ async def get_camera(camera_id, group_id=None):
         if group_id is not None:
             return await _fetchrow(
                 """
-                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.active, c.created_at
+                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.active, c.created_at, c.status
                 FROM cameras c
                 JOIN branches b ON b.branch_id = c.branch_id
                 WHERE c.camera_id = $1 AND b.group_id = $2;
@@ -687,7 +704,7 @@ async def get_camera(camera_id, group_id=None):
 
         return await _fetchrow(
             """
-            SELECT camera_id, branch_id, name, secret, active, created_at
+            SELECT camera_id, branch_id, name, secret, active, created_at, status
             FROM cameras
             WHERE camera_id = $1;
             """,

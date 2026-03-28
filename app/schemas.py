@@ -43,6 +43,7 @@ class CameraResponse(BaseModel):
     name: str | None = None
     secret: str | None = None
     active: bool = False
+    status: str = "offline"
     created_at: datetime
 
 

@@ -25,6 +25,7 @@ from app.services.database import (
     verify_camera_access_request as verify_camera_access_request_db,
     verify_camera_access_request_by_token as verify_camera_access_by_token_db,
     verify_camera_stream as verify_camera_stream_db,
+    update_camera_status as update_camera_status_db,
 )
 
 router = APIRouter(prefix="/api/cameras", tags=["cameras"])
@@ -36,6 +37,21 @@ async def verify_stream(
     secret: str = Form(default=None),
 ):
     row = await verify_camera_stream_db(camera_id=id, secret=secret)
+    if not row:
+        raise HTTPException(status_code=403, detail="Invalid stream credentials")
+
+    return ResponseMessage(
+        code=200,
+        message="Stream credentials verified",
+    )
+
+
+@router.post("/end-stream", response_model=ResponseMessage)
+async def end_stream(
+    camera_id: str = Form(alias="name"),
+    secret: str = Form(default=None),
+):
+    row = await end_camera_stream_db(camera_id=camera_id, secret=secret)
     if not row:
         raise HTTPException(status_code=403, detail="Invalid stream credentials")
 
@@ -144,6 +160,7 @@ async def list_cameras(
             name=row.get("name"),
             secret=row.get("secret"),
             active=row.get("active", False),
+            status=row.get("status", "offline"),
             created_at=row.get("created_at"),
         )
         for row in rows
@@ -180,6 +197,7 @@ async def get_camera(
             name=row.get("name"),
             secret=row.get("secret"),
             active=row.get("active", False),
+            status=row.get("status", "offline"),
             created_at=row.get("created_at"),
         ),
     )
@@ -214,6 +232,7 @@ async def add_camera(camera: CameraCreateRequest, admin_user: dict = Depends(req
             name=row.get("name"),
             secret=row.get("secret"),
             active=row.get("active", False),
+            status=row.get("status", "offline"),
             created_at=row.get("created_at"),
         ),
     )
@@ -260,6 +279,7 @@ async def update_camera(
             name=row.get("name"),
             secret=row.get("secret"),
             active=row.get("active", False),
+            status=row.get("status", "offline"),
             created_at=row.get("created_at"),
         ),
     )
@@ -293,6 +313,7 @@ async def reset_camera_secret(
             name=row.get("name"),
             secret=row.get("secret"),
             active=row.get("active", False),
+            status=row.get("status", "offline"),
             created_at=row.get("created_at"),
         ),
     )
@@ -330,7 +351,38 @@ async def set_camera_active(
             name=row.get("name"),
             secret=row.get("secret"),
             active=row.get("active", False),
+            status=row.get("status", "offline"),
             created_at=row.get("created_at"),
+        ),
+    )
+
+
+@router.post("/{camera_id}/status", response_model=ResponseMessage)
+async def set_camera_status(
+    camera_id: str,
+    status: str = Query(...),
+):
+    # This route might be called by an internal AI server or stream server.
+    # Optionally add admin checking if needed, but for internal callbacks it might just need the camera_id.
+    existing_camera = await get_camera_db(camera_id=camera_id)
+    if not existing_camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+
+    await update_camera_status_db(camera_id=camera_id, status=status)
+
+    updated_camera = await get_camera_db(camera_id=camera_id)
+
+    return ResponseMessage(
+        code=200,
+        message="Camera status updated successfully",
+        data=CameraResponse(
+            camera_id=updated_camera.get("camera_id"),
+            branch_id=updated_camera.get("branch_id"),
+            name=updated_camera.get("name"),
+            secret=updated_camera.get("secret"),
+            active=updated_camera.get("active", False),
+            status=updated_camera.get("status", "offline"),
+            created_at=updated_camera.get("created_at"),
         ),
     )
 
