@@ -599,6 +599,49 @@ async def add_sensor(sensor_name=None, branch_id=None):
         return None
 
 
+async def get_branch_data_for_export(branch_id: int, from_time: datetime, to_time: datetime):
+    """Fetch all values for all sensors in a branch, plus people count history for CSV export."""
+    try:
+        # 1. Get all sensor values for this branch in time range
+        sensor_values = await _fetch(
+            """
+            SELECT v.sensor_id, s.name as sensor_name, v.value, v.created_at
+            FROM values v
+            JOIN sensors s ON s.sensor_id = v.sensor_id
+            WHERE s.branch_id = $1 
+              AND s.deleted_at IS NULL
+              AND v.created_at >= $2
+              AND v.created_at <= $3
+            ORDER BY v.created_at ASC;
+            """,
+            branch_id,
+            from_time,
+            to_time,
+        )
+
+        # 2. Get people count history for this branch in time range
+        people_counts = await _fetch(
+            """
+            SELECT ia.people_count, ia.created_at
+            FROM image_analysis ia
+            JOIN cameras c ON c.camera_id = ia.camera_id
+            WHERE c.branch_id = $1
+              AND ia.created_at >= $2
+              AND ia.created_at <= $3
+            ORDER BY ia.created_at ASC;
+            """,
+            branch_id,
+            from_time,
+            to_time,
+        )
+
+        return sensor_values, people_counts
+    except Exception as e:
+        print(f"Error getting branch data for export: {e}")
+        return [], []
+
+
+
 async def update_sensor(sensor_id, sensor_name=None, branch_id=None, delete=False):
     try:
         if delete:

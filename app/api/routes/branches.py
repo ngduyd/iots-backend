@@ -1,7 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
 import asyncio
+import csv
+import io
 import json
+from datetime import datetime
 from urllib import error, request
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.core import config
 from app.schemas import (
@@ -18,6 +23,7 @@ from app.services.database import (
     create_branch as create_branch_db,
     delete_branch as delete_branch_db,
     get_branch as get_branch_db,
+    get_branch_data_for_export,
     get_branches as get_branches_db,
     get_camera_by_branch as get_camera_by_branch_db,
     get_cameras_by_branch as get_cameras_by_branch_db,
@@ -310,6 +316,81 @@ async def predict_branch(
             "prediction": prediction_data,
         },
     )
+
+
+@router.get("/{branch_id}/export")
+async def export_branch_data(
+    branch_id: int,
+    from_time: datetime = Query(...),
+    to_time: datetime = Query(...),
+    current_user: dict = Depends(get_current_user_record),
+):
+    """Export branch sensor data and people count to CSV."""
+    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+        raise HTTPException(status_code=403, detail="User is not assigned to any group")
+
+    branch = await get_branch_db(
+        branch_id,
+        None if is_superadmin(current_user) else current_user.get("group_id"),
+    )
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+
+    sensor_values, people_counts = await get_branch_data_for_export(branch_id, from_time, to_time)
+
+    # Determine all unique keys in JSON values across all sensors to create columns
+    extra_keys = set()
+    for row in sensor_values:
+        if isinstance(row["value"], dict):
+            extra_keys.update(row["value"].keys())
+    sorted_keys = sorted(list(extra_keys))
+
+    # Threshold-based matching for people counts (match to nearest sensor reading if within 30s)
+    def get_closest_people_count(sensor_ts):
+        if not people_counts:
+            return ""
+        closest = min(people_counts, key=lambda x: abs((x["created_at"] - sensor_ts).total_seconds()))
+        if abs((closest["created_at"] - sensor_ts).total_seconds()) < 30:
+            return closest["people_count"]
+        return ""
+
+    def generate_csv():
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        header = ["Time", "Sensor ID", "Sensor Name"] + sorted_keys + ["People Count"]
+        writer.writerow(header)
+        yield output.getvalue()
+        output.truncate(0)
+        output.seek(0)
+
+        for row in sensor_values:
+            ts = row["created_at"]
+            val_obj = row["value"]
+            
+            csv_row = [
+                ts.strftime("%Y-%m-%d %H:%M:%S"),
+                row["sensor_id"],
+                row["sensor_name"],
+            ]
+            
+            for key in sorted_keys:
+                csv_row.append(val_obj.get(key, "") if isinstance(val_obj, dict) else "")
+            
+            csv_row.append(get_closest_people_count(ts))
+            
+            writer.writerow(csv_row)
+            yield output.getvalue()
+            output.truncate(0)
+            output.seek(0)
+
+    filename = f"branch_{branch_id}_export_{datetime.now().strftime('%Y% Lakewood%m%d_%H%M%S')}.csv"
+    return StreamingResponse(
+        generate_csv(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
 
 
 def _send_predict_request(req: request.Request) -> str:
