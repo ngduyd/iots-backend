@@ -308,7 +308,6 @@ async def predict_branch(
         message="Prediction completed successfully",
         data={
             "prediction": prediction_data,
-            "people": people,
         },
     )
 
