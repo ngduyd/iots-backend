@@ -1,10 +1,19 @@
 import asyncio
 import heapq
 import random
+import json
 import time as _time
 import concurrent.futures
 from app.core import config
-from app.services.database import get_active_cameras, save_messages_batch
+from app.services.database import (
+    get_active_cameras,
+    save_messages_batch,
+    get_sensor_to_branch_mapping,
+    get_all_branch_thresholds,
+    update_branch_thresholds,
+    DEFAULT_THRESHOLDS,
+)
+from app.services.alert import alert_processor
 from app.services.mqtt_client import create_mqtt_client
 from app.services.image_analysis_service import process_camera_frame
 
@@ -23,6 +32,10 @@ class MqttRuntime:
         self._db_worker_task = None
         self._camera_scheduler_task = None
 
+        self._sensor_to_branch: dict = {}
+        self._threshold_cache: dict = {}
+        
+
     async def start(self):
         self.loop = asyncio.get_running_loop()
 
@@ -37,6 +50,8 @@ class MqttRuntime:
         self.client = create_mqtt_client(self.loop, self.message_queue)
         self.client.connect(config.MQTT_BROKER, config.MQTT_PORT, 60)
         self.client.loop_start()
+
+        await self._load_metadata_caches()
 
         self._db_worker_task = asyncio.create_task(self._db_worker())
         self._camera_scheduler_task = asyncio.create_task(self._camera_scheduler())
@@ -64,6 +79,14 @@ class MqttRuntime:
 
         print("MQTT runtime stopped")
 
+    async def _load_metadata_caches(self):
+        try:
+            self._sensor_to_branch = await get_sensor_to_branch_mapping()
+            self._threshold_cache = await get_all_branch_thresholds()
+            print(f"[CACHE] Loaded {len(self._sensor_to_branch)} sensors and {len(self._threshold_cache)} branch thresholds")
+        except Exception as e:
+            print(f"[CACHE] Error loading metadata caches: {e}")
+
     async def _db_worker(self):
         batch_size = max(1, config.DB_WORKER_BATCH_SIZE)
         flush_interval = max(0.01, config.DB_WORKER_FLUSH_INTERVAL_MS / 1000.0)
@@ -82,6 +105,17 @@ class MqttRuntime:
                     batch.append(item)
                 except asyncio.TimeoutError:
                     break
+            for sid, pld, _ in batch:
+                await self._process_threshold_discovery(sid, pld)
+
+                branch_id = self._sensor_to_branch.get(sid)
+                if branch_id:
+                    try:
+                        data = json.loads(pld)
+                        thresholds = self._threshold_cache.get(branch_id, {})
+                        await alert_processor.process_message(sid, branch_id, data, thresholds)
+                    except Exception as e:
+                        print(f"[ALERT] Error processing alerts for {sid}: {e}")
 
             try:
                 await save_messages_batch(batch)
@@ -91,8 +125,40 @@ class MqttRuntime:
                 for _ in batch:
                     self.message_queue.task_done()
 
+    async def _process_threshold_discovery(self, sensor_id: str, payload_str: str):
+        try:
+            branch_id = self._sensor_to_branch.get(sensor_id)
+            if branch_id is None:
+                self._sensor_to_branch = await get_sensor_to_branch_mapping()
+                branch_id = self._sensor_to_branch.get(sensor_id)
+                if branch_id is None:
+                    return
+
+            data = json.loads(payload_str)
+            if not isinstance(data, dict):
+                return
+
+            thresholds = self._threshold_cache.get(branch_id, {})
+            needs_update = False
+            for key in data.keys():
+                if key not in thresholds:
+                    default = DEFAULT_THRESHOLDS.get(key, {"min": 0, "max": 100, "activated": True})
+                    thresholds[key] = {
+                        "min": default["min"],
+                        "max": default["max"],
+                        "activated": True
+                    }
+                    needs_update = True
+
+            if needs_update:
+                self._threshold_cache[branch_id] = thresholds
+                await update_branch_thresholds(branch_id, thresholds)
+                print(f"[THRESHOLD] Discovered new parameters for branch {branch_id}: {list(data.keys())}")
+
+        except Exception as e:
+            pass
+
     def add_camera_to_schedule(self, camera_id: str):
-        """Dynamically add a camera to the scheduling queue."""
         if not self.running or not self.loop:
             return
         if camera_id not in self._scheduled_ids:
@@ -103,13 +169,11 @@ class MqttRuntime:
             print(f"[SCHEDULER] Dynamically added camera {camera_id} (starting in {jitter:.1f}s)")
 
     def remove_camera_from_schedule(self, camera_id: str):
-        """Dynamically remove a camera from the scheduling queue."""
         if camera_id in self._scheduled_ids:
             self._scheduled_ids.discard(camera_id)
             print(f"[SCHEDULER] Dynamically removed camera {camera_id} from schedule")
 
     async def _fetch_and_merge_cameras(self):
-        """Fetch cameras from DB and update the heap for new or removed ones."""
         try:
             rows = await get_active_cameras()
         except Exception as e:
@@ -130,11 +194,6 @@ class MqttRuntime:
             self._scheduled_ids.discard(camera_id)
 
     async def _camera_scheduler(self):
-        """
-        Priority queue based scheduler. 
-        Runs cameras independently without blocking.
-        Deleted cameras are skipped when their turn comes.
-        """
         await asyncio.sleep(0.1)
 
         while self.running:
@@ -171,7 +230,6 @@ class MqttRuntime:
             pass
 
     async def _run_one(self, camera_id: str):
-        """Analyze a single camera - independent task with hard timeout."""
         t0 = _time.monotonic()
         try:
             await asyncio.wait_for(

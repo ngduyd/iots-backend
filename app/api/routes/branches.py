@@ -155,7 +155,7 @@ async def create_branch(
     row = await create_branch_db(
         group_id=group_id,
         name=branch.name,
-        alert=branch.alert,
+        thresholds=branch.thresholds,
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot create branch")
@@ -188,7 +188,7 @@ async def update_branch(
         branch_id=branch_id,
         group_id=target_group_id,
         name=branch.name,
-        alert=branch.alert,
+        thresholds=branch.thresholds,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Branch not found")

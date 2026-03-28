@@ -6,6 +6,7 @@ from app.api.routes.branches import router as branches_router
 from app.api.routes.cameras import router as cameras_router
 from app.api.routes.groups import router as groups_router
 from app.api.routes.sensors import router as sensors_router
+from app.api.routes.notifications import router as notifications_router
 from app.api.routes.users import current_user_router, router as users_router
 from app.core import config
 from app.runtime import runtime
@@ -53,6 +54,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(groups_router)
 app.include_router(sensors_router)
+app.include_router(notifications_router)
 app.include_router(cameras_router)
 app.include_router(branches_router)
 app.include_router(current_user_router)

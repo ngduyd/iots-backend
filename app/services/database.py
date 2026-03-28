@@ -10,6 +10,14 @@ from datetime import datetime
 db_pool = None
 _pool_lock = asyncio.Lock()
 
+DEFAULT_THRESHOLDS = {
+    "co2": {"min": config.DEFAULT_CO2_MIN, "max": config.DEFAULT_CO2_MAX, "activated": True},
+    "temp": {"min": config.DEFAULT_TEMP_MIN, "max": config.DEFAULT_TEMP_MAX, "activated": True},
+    "rh": {"min": config.DEFAULT_HUMID_MIN, "max": config.DEFAULT_HUMID_MAX, "activated": True},
+    "pm2_5": {"min": config.DEFAULT_PM25_MIN, "max": config.DEFAULT_PM25_MAX, "activated": True},
+    "pm10": {"min": config.DEFAULT_PM10_MIN, "max": config.DEFAULT_PM10_MAX, "activated": True},
+}
+
 
 async def _init_connection(connection):
     await connection.set_type_codec(
@@ -130,7 +138,33 @@ async def init_db():
                         branch_id SERIAL PRIMARY KEY,
                         group_id INT REFERENCES groups(group_id),
                         name VARCHAR(100) NOT NULL,
-                        alert VARCHAR(100) DEFAULT 'none',
+                        thresholds JSONB,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
+                    ALTER TABLE branches ADD COLUMN IF NOT EXISTS thresholds JSONB;
+                    """
+                )
+                await connection.execute(
+                    """
+                    DO $$
+                    BEGIN
+                        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='branches' AND column_name='metadata') THEN
+                            ALTER TABLE branches RENAME COLUMN metadata TO thresholds;
+                        END IF;
+                    END $$;
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS alerts (
+                        alert_id SERIAL PRIMARY KEY,
+                        branch_id INT REFERENCES branches(branch_id) ON DELETE CASCADE,
+                        message TEXT NOT NULL,
+                        level VARCHAR(50) NOT NULL,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );
                     """
@@ -512,7 +546,6 @@ async def get_cameras_by_branch(branch_id, limit=100):
 
 
 async def get_camera_by_branch(branch_id):
-    """Return the single camera for a branch (branches have at most 1 camera)."""
     try:
         return await _fetchrow(
             """
@@ -989,17 +1022,20 @@ async def delete_camera(camera_id):
         print(f"Error deleting camera: {e}")
         return False
 
-async def create_branch(group_id, name, alert="none"):
+async def create_branch(group_id, name, thresholds=None):
     try:
+        # User wants to remove default initialization upon creation
+        # thresholds will be {} by default and auto-discovered in runtime
+        final_thresholds = thresholds if thresholds is not None else {}
         return await _fetchrow(
             """
-            INSERT INTO branches (group_id, name, alert)
-            VALUES ($1, $2, $3)
-            RETURNING branch_id, group_id, name, alert, created_at;
+            INSERT INTO branches (group_id, name, thresholds)
+            VALUES ($1, $2, $3::jsonb)
+            RETURNING branch_id, group_id, name, thresholds, created_at;
             """,
             group_id,
             name,
-            alert,
+            json.dumps(final_thresholds),
         )
     except Exception as e:
         print(f"Error creating branch: {e}")
@@ -1011,7 +1047,7 @@ async def get_branches(group_id=None):
         if group_id is not None:
             return await _fetch(
                 """
-                SELECT branch_id, group_id, name, alert, created_at
+                SELECT branch_id, group_id, name, thresholds, created_at
                 FROM branches
                 WHERE group_id = $1
                 ORDER BY branch_id DESC;
@@ -1021,7 +1057,7 @@ async def get_branches(group_id=None):
 
         return await _fetch(
             """
-            SELECT * FROM branches;
+            SELECT branch_id, group_id, name, thresholds, created_at FROM branches;
             """
         )
     except Exception as e:
@@ -1034,7 +1070,7 @@ async def get_branch(branch_id, group_id=None):
         if group_id is not None:
             return await _fetchrow(
                 """
-                SELECT branch_id, group_id, name, alert, created_at
+                SELECT branch_id, group_id, name, thresholds, created_at
                 FROM branches
                 WHERE branch_id = $1 AND group_id = $2;
                 """,
@@ -1044,7 +1080,7 @@ async def get_branch(branch_id, group_id=None):
 
         return await _fetchrow(
             """
-            SELECT branch_id, group_id, name, alert, created_at
+            SELECT branch_id, group_id, name, thresholds, created_at
             FROM branches
             WHERE branch_id = $1;
             """,
@@ -1055,18 +1091,18 @@ async def get_branch(branch_id, group_id=None):
         return None
 
 
-async def update_branch(branch_id, group_id, name, alert="none"):
+async def update_branch(branch_id, group_id, name, thresholds=None):
     try:
         return await _fetchrow(
             """
             UPDATE branches
-            SET group_id = $1, name = $2, alert = $3
+            SET group_id = $1, name = $2, thresholds = $3::jsonb
             WHERE branch_id = $4
-            RETURNING branch_id, group_id, name, alert, created_at;
+            RETURNING branch_id, group_id, name, thresholds, created_at;
             """,
             group_id,
             name,
-            alert,
+            json.dumps(thresholds) if thresholds else None,
             branch_id,
         )
     except Exception as e:
@@ -1148,6 +1184,51 @@ async def update_group(group_id, name):
         )
     except Exception as e:
         print(f"Error updating group: {e}")
+        return None
+
+async def get_sensor_to_branch_mapping():
+    try:
+        rows = await _fetch("SELECT sensor_id, branch_id FROM sensors WHERE deleted_at IS NULL;")
+        return {row["sensor_id"]: row["branch_id"] for row in rows}
+    except Exception as e:
+        print(f"Error getting sensor to branch mapping: {e}")
+        return {}
+
+async def get_all_branch_thresholds():
+    try:
+        rows = await _fetch("SELECT branch_id, thresholds FROM branches;")
+        return {row["branch_id"]: row["thresholds"] or {} for row in rows}
+    except Exception as e:
+        print(f"Error getting all branch thresholds: {e}")
+        return {}
+
+async def update_branch_thresholds(branch_id, thresholds):
+    try:
+        await _execute(
+            "UPDATE branches SET thresholds = $1::jsonb WHERE branch_id = $2;",
+            json.dumps(thresholds),
+            branch_id,
+        )
+        return True
+    except Exception as e:
+        print(f"Error updating branch thresholds: {e}")
+        return False
+
+
+async def create_alert(branch_id, message, level):
+    try:
+        return await _fetchrow(
+            """
+            INSERT INTO alerts (branch_id, message, level)
+            VALUES ($1, $2, $3)
+            RETURNING alert_id, branch_id, message, level, created_at;
+            """,
+            branch_id,
+            message,
+            level,
+        )
+    except Exception as e:
+        print(f"Error creating alert: {e}")
         return None
 
 

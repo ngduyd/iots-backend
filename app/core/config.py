@@ -41,3 +41,18 @@ CAMERA_CAPTURE_JITTER_SECONDS = int(os.environ.get("CAMERA_CAPTURE_JITTER_SECOND
 CAMERA_LIST_REFRESH_SECONDS = int(os.environ.get("CAMERA_LIST_REFRESH_SECONDS", 300))
 
 AI_API_URL = os.environ.get("AI_API_URL", "http://100.123.114.97:9000/api/v1")
+
+DEFAULT_CO2_MAX = int(os.environ.get("DEFAULT_CO2_MAX", 1000))
+DEFAULT_TEMP_MIN = float(os.environ.get("DEFAULT_TEMP_MIN", 18.0))
+DEFAULT_TEMP_MAX = float(os.environ.get("DEFAULT_TEMP_MAX", 35.0))
+DEFAULT_HUMID_MIN = float(os.environ.get("DEFAULT_HUMID_MIN", 30.0))
+DEFAULT_HUMID_MAX = float(os.environ.get("DEFAULT_HUMID_MAX", 80.0))
+DEFAULT_PM25_MIN = float(os.environ.get("DEFAULT_PM25_MIN", 0.0))
+DEFAULT_PM25_MAX = float(os.environ.get("DEFAULT_PM25_MAX", 50.0))
+DEFAULT_PM10_MIN = float(os.environ.get("DEFAULT_PM10_MIN", 0.0))
+DEFAULT_PM10_MAX = float(os.environ.get("DEFAULT_PM10_MAX", 100.0))
+
+ALERT_TEMP_DELTA_MAX = float(os.environ.get("ALERT_TEMP_DELTA_MAX", 5.0))
+ALERT_TEMP_WINDOW = int(os.environ.get("ALERT_TEMP_WINDOW", 30))
+ALERT_TEMP_ABSOLUTE_MAX = float(os.environ.get("ALERT_TEMP_ABSOLUTE_MAX", 45.0))
+ALERT_POLLUTANT_SPIKE_RATIO = float(os.environ.get("ALERT_POLLUTANT_SPIKE_RATIO", 1.5))
