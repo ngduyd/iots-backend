@@ -80,7 +80,7 @@ async def _call_people_count_service(camera_id: str) -> int | None:
     """
     try:
         response_text = await asyncio.to_thread(
-            _post_json,
+            _post_form,
             config.PEOPLE_COUNT_API_URL,
             {"camera_id": camera_id},
             PEOPLE_COUNT_TIMEOUT_SECONDS,
@@ -103,8 +103,8 @@ async def _call_people_count_service(camera_id: str) -> int | None:
     return None
 
 
-def _post_json(url: str, payload: dict, timeout: int) -> str:
-    """Send a POST request with JSON payload and return response text."""
-    resp = requests.post(url, json=payload, timeout=timeout)
+def _post_form(url: str, payload: dict, timeout: int) -> str:
+    """Send a POST request with Form payload and return response text."""
+    resp = requests.post(url, data=payload, timeout=timeout)
     resp.raise_for_status()
     return resp.text
