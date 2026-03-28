@@ -255,12 +255,14 @@ async def predict_branch(
             detail=f"Not enough sensor data. Required {PREDICT_ROWS} rows, got {len(rows)}.",
         )
 
-    # Get latest people count from the camera
+    # Get latest people count from the camera — same {value, created_at} format as sensor rows
     people_count_row = await get_latest_people_count_by_branch(branch_id)
-    people_count = people_count_row["people_count"] if people_count_row else None
-    people_recorded_at = (
-        people_count_row["created_at"].isoformat()
-        if people_count_row and people_count_row.get("created_at")
+    people = (
+        {
+            "value": people_count_row["people_count"],
+            "created_at": people_count_row["created_at"].isoformat() if people_count_row.get("created_at") else None,
+        }
+        if people_count_row
         else None
     )
 
@@ -278,8 +280,7 @@ async def predict_branch(
         "senser_id": sensor_id,
         "rows": values,
         "model_id": "default",
-        "people_count": people_count,
-        "people_recorded_at": people_recorded_at,
+        "people": people,
     }
 
     req = request.Request(
@@ -308,8 +309,7 @@ async def predict_branch(
         message="Prediction completed successfully",
         data={
             "prediction": prediction_data,
-            "people_count": people_count,
-            "people_recorded_at": people_recorded_at,
+            "people": people,
         },
     )
 
