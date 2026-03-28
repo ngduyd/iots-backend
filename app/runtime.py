@@ -30,14 +30,14 @@ class MqttRuntime:
         self.client.loop_start()
 
         self._db_worker_task = asyncio.create_task(self._db_worker())
-        # self._camera_scheduler_task = asyncio.create_task(self._camera_scheduler())
+        self._camera_scheduler_task = asyncio.create_task(self._camera_scheduler())
         self.running = True
         print("MQTT runtime started")
 
     async def stop(self):
         self.running = False
 
-        for task in (self._db_worker_task):
+        for task in (self._db_worker_task, self._camera_scheduler_task):
             if task:
                 task.cancel()
                 try:
