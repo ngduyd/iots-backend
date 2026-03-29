@@ -265,12 +265,6 @@ async def init_db():
                 )
                 await connection.execute(
                     """
-                    ALTER TABLE cameras
-                    RENAME COLUMN active TO activate;
-                    """
-                )
-                await connection.execute(
-                    """
                     ALTER TABLE jobs
                     ADD COLUMN IF NOT EXISTS message TEXT;
                     """
