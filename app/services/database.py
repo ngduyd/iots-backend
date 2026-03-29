@@ -165,8 +165,15 @@ async def init_db():
                         branch_id INT REFERENCES branches(branch_id) ON DELETE CASCADE,
                         message TEXT NOT NULL,
                         level VARCHAR(50) NOT NULL,
+                        is_read BOOLEAN NOT NULL DEFAULT FALSE,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );
+                    """
+                )
+                await connection.execute(
+                    """
+                    ALTER TABLE alerts
+                    ADD COLUMN IF NOT EXISTS is_read BOOLEAN NOT NULL DEFAULT FALSE;
                     """
                 )
                 await connection.execute(
@@ -1250,7 +1257,7 @@ async def create_alert(branch_id, message, level):
             """
             INSERT INTO alerts (branch_id, message, level)
             VALUES ($1, $2, $3)
-            RETURNING alert_id, branch_id, message, level, created_at;
+            RETURNING alert_id, branch_id, message, level, is_read, created_at;
             """,
             branch_id,
             message,
@@ -1261,14 +1268,18 @@ async def create_alert(branch_id, message, level):
         return None
 
 
-async def get_alerts_by_branch(branch_id, limit=None):
+async def get_alerts_by_branch(branch_id, limit=None, unread_only=False):
     try:
         query = """
-            SELECT alert_id, branch_id, message, level, created_at
+            SELECT alert_id, branch_id, message, level, is_read, created_at
             FROM alerts
             WHERE branch_id = $1
-            ORDER BY created_at DESC
         """
+        if unread_only:
+            query += " AND is_read = FALSE"
+            
+        query += " ORDER BY created_at DESC"
+        
         if limit is not None:
             query += f" LIMIT {int(limit)}"
         
@@ -1277,6 +1288,21 @@ async def get_alerts_by_branch(branch_id, limit=None):
         print(f"Error getting alerts by branch: {e}")
         return []
 
+
+async def mark_alert_as_read_db(alert_id):
+    try:
+        return await _fetchrow(
+            """
+            UPDATE alerts
+            SET is_read = TRUE
+            WHERE alert_id = $1
+            RETURNING alert_id, is_read;
+            """,
+            alert_id,
+        )
+    except Exception as e:
+        print(f"Error marking alert as read: {e}")
+        return None
 
 async def delete_group(group_id):
     try:

@@ -30,6 +30,7 @@ from app.services.database import (
     get_sensors_by_branch as get_sensors_by_branch_db,
     update_branch as update_branch_db,
     get_alerts_by_branch,
+    mark_alert_as_read_db,
 )
 
 PREDICT_API_URL = f"{config.AI_API_URL}/predict"
@@ -315,6 +316,7 @@ async def predict_branch(
 async def list_branch_alerts(
     branch_id: int,
     limit: int = Query(10, ge=1, le=100),
+    unread_only: bool = Query(False),
     current_user: dict = Depends(get_current_user_record),
 ):
     if not is_superadmin(current_user) and current_user.get("group_id") is None:
@@ -327,12 +329,25 @@ async def list_branch_alerts(
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
 
-    alerts = await get_alerts_by_branch(branch_id, limit=limit)
+    alerts = await get_alerts_by_branch(branch_id, limit=limit, unread_only=unread_only)
     return ResponseMessage(
         code=200,
         message="Alerts retrieved successfully",
         data=alerts,
     )
+
+
+@router.post("/{branch_id}/alerts/{alert_id}/read", response_model=ResponseMessage)
+async def mark_alert_as_read(
+    alert_id: int,
+    current_user: dict = Depends(get_current_user_record),
+):
+    """Mark a specific alert as read."""
+    updated = await mark_alert_as_read_db(alert_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Alert not found")
+        
+    return ResponseMessage(code=200, message="Alert marked as read", data=updated)
 
 
 @router.get("/{branch_id}/export")
