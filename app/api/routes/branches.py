@@ -189,6 +189,9 @@ async def update_branch(
     target_name = branch.name if branch.name else existing["name"]
     target_thresholds = branch.thresholds if branch.thresholds is not None else existing["thresholds"]
 
+    print(target_thresholds)
+    print(type(target_thresholds))
+
     row = await update_branch_db(
         branch_id=branch_id,
         group_id=target_group_id,
