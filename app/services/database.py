@@ -250,7 +250,7 @@ async def init_db():
                         branch_id INT REFERENCES branches(branch_id),
                         name VARCHAR(50),
                         secret VARCHAR(64),
-                        active BOOLEAN NOT NULL DEFAULT FALSE,
+                        activate BOOLEAN NOT NULL DEFAULT FALSE,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );
                     """
@@ -258,7 +258,13 @@ async def init_db():
                 await connection.execute(
                     """
                     ALTER TABLE cameras
-                    ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT FALSE;
+                    RENAME COLUMN active TO activate;
+                    """
+                )
+                await connection.execute(
+                    """
+                    ALTER TABLE cameras
+                    ADD COLUMN IF NOT EXISTS activate BOOLEAN NOT NULL DEFAULT FALSE;
                     """
                 )
                 await connection.execute(
@@ -772,7 +778,7 @@ async def get_cameras(limit=100, group_id=None):
         if group_id is not None:
             return await _fetch(
                 """
-                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.active, c.created_at, c.status
+                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.activate, c.created_at, c.status
                 FROM cameras c
                 JOIN branches b ON b.branch_id = c.branch_id
                 WHERE b.group_id = $1
@@ -785,7 +791,7 @@ async def get_cameras(limit=100, group_id=None):
 
         return await _fetch(
             """
-            SELECT camera_id, branch_id, name, secret, active, created_at, status
+            SELECT camera_id, branch_id, name, secret, activate, created_at, status
             FROM cameras
             ORDER BY camera_id DESC
             LIMIT $1;
@@ -801,9 +807,9 @@ async def get_active_cameras():
     try:
         return await _fetch(
             """
-            SELECT camera_id, branch_id, name, secret, active, created_at, status
+            SELECT camera_id, branch_id, name, secret, activate, created_at, status
             FROM cameras
-            WHERE active = TRUE
+            WHERE activate = TRUE
             ORDER BY camera_id DESC;
             """
         )
@@ -817,7 +823,7 @@ async def get_camera(camera_id, group_id=None):
         if group_id is not None:
             return await _fetchrow(
                 """
-                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.active, c.created_at, c.status
+                SELECT c.camera_id, c.branch_id, c.name, c.secret, c.activate, c.created_at, c.status
                 FROM cameras c
                 JOIN branches b ON b.branch_id = c.branch_id
                 WHERE c.camera_id = $1 AND b.group_id = $2;
@@ -828,7 +834,7 @@ async def get_camera(camera_id, group_id=None):
 
         return await _fetchrow(
             """
-            SELECT camera_id, branch_id, name, secret, active, created_at, status
+            SELECT camera_id, branch_id, name, secret, activate, created_at, status
             FROM cameras
             WHERE camera_id = $1;
             """,
@@ -961,7 +967,7 @@ async def reset_all_cameras_offline():
         print(f"[STARTUP] Error resetting camera statuses: {e}")
 
 
-async def add_camera(name=None, branch_id=None, active=False):
+async def add_camera(name=None, branch_id=None, activate=False):
     if branch_id is None:
         print("branch_id is required")
         return None
@@ -971,35 +977,35 @@ async def add_camera(name=None, branch_id=None, active=False):
         secret = _generate_camera_secret()
         return await _fetchrow(
             """
-            INSERT INTO cameras (camera_id, branch_id, name, secret, active)
+            INSERT INTO cameras (camera_id, branch_id, name, secret, activate)
             VALUES ($1, $2, $3, $4, $5)
-            RETURNING camera_id, branch_id, name, secret, active, created_at;
+            RETURNING camera_id, branch_id, name, secret, activate, created_at;
             """,
             camera_id,
             branch_id,
             name,
             secret,
-            active,
+            activate,
         )
     except Exception as e:
         print(f"Error adding camera: {e}")
         return None
 
 
-async def update_camera(camera_id, name=None, branch_id=None, active=None):
+async def update_camera(camera_id, name=None, branch_id=None, activate=None):
     try:
         return await _fetchrow(
             """
             UPDATE cameras
             SET branch_id = COALESCE($1, branch_id),
                 name = COALESCE($2, name),
-                active = COALESCE($3, active)
+                activate = COALESCE($3, activate)
             WHERE camera_id = $4
-            RETURNING camera_id, branch_id, name, secret, active, created_at;
+            RETURNING camera_id, branch_id, name, secret, activate, created_at;
             """,
             branch_id,
             name,
-            active,
+            activate,
             camera_id,
         )
     except Exception as e:

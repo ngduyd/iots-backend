@@ -29,7 +29,7 @@ class SensorCreateRequest(BaseModel):
 class CameraCreateRequest(BaseModel):
     name: str | None = None
     branch_id: int
-    active: bool | None = None
+    activate: bool | None = None
 
 
 class CameraVerifyStreamRequest(BaseModel):
@@ -42,7 +42,7 @@ class CameraResponse(BaseModel):
     branch_id: int | None = None
     name: str | None = None
     secret: str | None = None
-    active: bool = False
+    activate: bool = False
     status: str = "offline"
     created_at: datetime
 

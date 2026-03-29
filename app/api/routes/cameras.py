@@ -159,7 +159,7 @@ async def list_cameras(
             branch_id=row.get("branch_id"),
             name=row.get("name"),
             secret=row.get("secret"),
-            active=row.get("active", False),
+            activate=row.get("activate", False),
             status=row.get("status", "offline"),
             created_at=row.get("created_at"),
         )
@@ -196,7 +196,7 @@ async def get_camera(
             branch_id=row.get("branch_id"),
             name=row.get("name"),
             secret=row.get("secret"),
-            active=row.get("active", False),
+            activate=row.get("activate", False),
             status=row.get("status", "offline"),
             created_at=row.get("created_at"),
         ),
@@ -218,7 +218,7 @@ async def add_camera(camera: CameraCreateRequest, admin_user: dict = Depends(req
     row = await create_camera_db(
         name=camera.name,
         branch_id=camera.branch_id,
-        active=bool(camera.active) if camera.active is not None else False,
+        activate=bool(camera.activate) if camera.activate is not None else False,
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot create camera")
@@ -231,7 +231,7 @@ async def add_camera(camera: CameraCreateRequest, admin_user: dict = Depends(req
             branch_id=row.get("branch_id"),
             name=row.get("name"),
             secret=row.get("secret"),
-            active=row.get("active", False),
+            activate=row.get("activate", False),
             status=row.get("status", "offline"),
             created_at=row.get("created_at"),
         ),
@@ -265,7 +265,7 @@ async def update_camera(
         camera_id=camera_id,
         name=camera.name,
         branch_id=camera.branch_id,
-        active=camera.active,
+        activate=camera.activate,
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot update camera")
@@ -278,7 +278,7 @@ async def update_camera(
             branch_id=row.get("branch_id"),
             name=row.get("name"),
             secret=row.get("secret"),
-            active=row.get("active", False),
+            activate=row.get("activate", False),
             status=row.get("status", "offline"),
             created_at=row.get("created_at"),
         ),
@@ -312,17 +312,17 @@ async def reset_camera_secret(
             branch_id=row.get("branch_id"),
             name=row.get("name"),
             secret=row.get("secret"),
-            active=row.get("active", False),
+            activate=row.get("activate", False),
             status=row.get("status", "offline"),
             created_at=row.get("created_at"),
         ),
     )
 
 
-@router.post("/{camera_id}/active", response_model=ResponseMessage)
-async def set_camera_active(
+@router.post("/{camera_id}/activate", response_model=ResponseMessage)
+async def set_camera_activate(
     camera_id: str,
-    active: bool = Query(...),
+    activate: bool = Query(...),
     admin_user: dict = Depends(require_admin),
 ):
     if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
@@ -337,20 +337,20 @@ async def set_camera_active(
 
     row = await update_camera_db(
         camera_id=camera_id,
-        active=active,
+        activate=activate,
     )
     if not row:
-        raise HTTPException(status_code=400, detail="Cannot update camera active status")
+        raise HTTPException(status_code=400, detail="Cannot update camera activation status")
 
     return ResponseMessage(
         code=200,
-        message="Camera active status updated successfully",
+        message="Camera activation status updated successfully",
         data=CameraResponse(
             camera_id=row.get("camera_id"),
             branch_id=row.get("branch_id"),
             name=row.get("name"),
             secret=row.get("secret"),
-            active=row.get("active", False),
+            activate=row.get("activate", False),
             status=row.get("status", "offline"),
             created_at=row.get("created_at"),
         ),
@@ -378,7 +378,7 @@ async def set_camera_status(
             branch_id=updated_camera.get("branch_id"),
             name=updated_camera.get("name"),
             secret=updated_camera.get("secret"),
-            active=updated_camera.get("active", False),
+            activate=updated_camera.get("activate", False),
             status=updated_camera.get("status", "offline"),
             created_at=updated_camera.get("created_at"),
         ),
