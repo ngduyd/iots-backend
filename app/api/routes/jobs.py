@@ -1,15 +1,11 @@
 import uuid
 import secrets
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+
 from app.schemas import (
     JobCreateRequest,
     JobUpdateRequest,
-    JobResponse,
     ResponseMessage,
-    DatasetParams,
-    FeatureEngineeringParams,
-    ForecastParams,
-    ModelHyperparams,
     PaginationQuery,
 )
 from app.security import get_current_user_record, is_superadmin
@@ -22,49 +18,19 @@ from app.services.database import (
     verify_job_data_exists,
     get_jobs_db,
 )
+from app.services.job_service import process_and_notify_ai_server, get_job_defaults_data
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
 
 @router.get("/defaults", response_model=ResponseMessage)
 async def get_job_defaults():
-    """
-    Returns default parameters for job creation to simplify frontend form handling.
-    """
-    from datetime import timedelta, datetime as dt
-    now = dt.now()
-    defaults = {
-        "dataset": {
-            "branch_id": 1,
-            "date_from": (now - timedelta(days=30)).isoformat(),
-            "date_to": now.isoformat(),
-            "features": ["co2", "temp", "rh", "people"],
-            "targets": ["co2", "temp", "rh"]
-        },
-        "feature_engineering": {
-            "lags": [1, 2, 3, 5, 10, 20],
-            "rolls": [5, 10, 20],
-            "use_time_features": True,
-            "use_diff_features": True,
-            "use_occupancy": True,
-            "use_interaction": True
-        },
-        "forecast": {
-            "horizon": 15,
-            "step_ahead": 10
-        },
-        "model_hyperparams": {
-            "n_estimators": 500,
-            "max_depth": 6,
-            "learning_rate": 0.03,
-            "subsample": 0.8,
-            "colsample_bytree": 0.8
-        }
-    }
+    defaults = get_job_defaults_data()
     return ResponseMessage(code=200, message="Defaults retrieved", data=defaults)
 
 @router.post("/create", response_model=ResponseMessage)
 async def create_job(
     request: JobCreateRequest,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user_record),
 ):
     branch = await get_branch_db(
@@ -100,6 +66,17 @@ async def create_job(
         message=message
     )
 
+    if job and data_ok:
+        background_tasks.add_task(
+            process_and_notify_ai_server,
+            job_id=job_id,
+            secret=secret,
+            branch_id=request.dataset.branch_id,
+            date_from=request.dataset.date_from,
+            date_to=request.dataset.date_to,
+            request_payload=request.dict()
+        )
+
     if not job:
         raise HTTPException(status_code=500, detail="Failed to create job in database")
 
@@ -119,7 +96,6 @@ async def get_job_status(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Verify access (Superadmin or same group as branch)
     branch = await get_branch_db(
         job["branch_id"],
         None if is_superadmin(current_user) else current_user.get("group_id"),
@@ -138,7 +114,6 @@ async def cancel_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Verify access
     branch = await get_branch_db(
         job["branch_id"],
         None if is_superadmin(current_user) else current_user.get("group_id"),
@@ -168,7 +143,6 @@ async def update_job_server_to_server(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Verify Secret
     if secrets.compare_digest(job["secret"], update_data.secret) is False:
         raise HTTPException(status_code=401, detail="Invalid job secret")
 
