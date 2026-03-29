@@ -128,7 +128,7 @@ class UserCreateByAdminRequest(BaseModel):
 class UserUpdateRequest(BaseModel):
     username: str
     group_id: int | None = None
-    role: str = "user"
+    role: str | None = None
 
 
 class UserResponse(BaseModel):
