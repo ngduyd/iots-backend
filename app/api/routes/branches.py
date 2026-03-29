@@ -18,6 +18,7 @@ from app.schemas import (
     SensorStatus,
 )
 from app.security import get_current_user_record, is_superadmin, require_admin
+from app.runtime import runtime
 from app.services.database import (
     create_branch as create_branch_db,
     delete_branch as delete_branch_db,
@@ -200,6 +201,10 @@ async def update_branch(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Branch not found")
+
+    # Sync with MQTT Runtime cache
+    runtime.update_threshold_cache(branch_id, target_thresholds)
+
     return ResponseMessage(
         code=200,
         message="Branch updated successfully",

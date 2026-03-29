@@ -156,12 +156,16 @@ class MqttRuntime:
                     needs_update = True
 
             if needs_update:
-                self._threshold_cache[branch_id] = thresholds
+                self.update_threshold_cache(branch_id, thresholds)
                 await update_branch_thresholds(branch_id, thresholds)
                 print(f"[THRESHOLD] Discovered new parameters for branch {branch_id}: {list(data.keys())}")
 
         except Exception as e:
             pass
+
+    def update_threshold_cache(self, branch_id: int, thresholds: dict):
+        self._threshold_cache[branch_id] = thresholds
+        print(f"[CACHE] Updated thresholds for branch {branch_id}")
 
     def add_camera_to_schedule(self, camera_id: str):
         if not self.running or not self.loop:
