@@ -1463,20 +1463,35 @@ async def authenticate_user(username, password):
         return None
 
 
-async def update_user(user_id, username, group_id=None, role="user"):
+async def update_user(user_id, username, group_id=None, role="user", password=None):
     try:
-        return await _fetchrow(
-            """
-            UPDATE users
-            SET username = $1, group_id = $2, role = $3
-            WHERE user_id = $4
-            RETURNING user_id, group_id, username, role, created_at;
-            """,
-            username,
-            group_id,
-            role,
-            user_id,
-        )
+        if password:
+            return await _fetchrow(
+                """
+                UPDATE users
+                SET username = $1, group_id = $2, role = $3, password_hash = $4
+                WHERE user_id = $5
+                RETURNING user_id, group_id, username, role, created_at;
+                """,
+                username,
+                group_id,
+                role,
+                _hash_password(password),
+                user_id,
+            )
+        else:
+            return await _fetchrow(
+                """
+                UPDATE users
+                SET username = $1, group_id = $2, role = $3
+                WHERE user_id = $4
+                RETURNING user_id, group_id, username, role, created_at;
+                """,
+                username,
+                group_id,
+                role,
+                user_id,
+            )
     except Exception as e:
         print(f"Error updating user: {e}")
         return None

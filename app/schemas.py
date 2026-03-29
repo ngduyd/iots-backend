@@ -129,6 +129,7 @@ class UserUpdateRequest(BaseModel):
     username: str | None = None
     group_id: int | None = None
     role: str | None = None
+    password: str | None = None
 
 
 class UserResponse(BaseModel):

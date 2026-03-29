@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.schemas import ResponseMessage, UserCreateByAdminRequest, UserUpdateRequest
+from app.schemas import ResponseMessage, UserCreateByAdminRequest, UserUpdateRequest, UserProfileUpdateRequest
 from app.security import get_current_user_record, is_superadmin, require_admin
 from app.services.database import (
     create_user as create_user_db,
@@ -97,40 +97,47 @@ async def create_user(
 async def update_user(
     user_id: int,
     user: UserUpdateRequest,
-    admin_user: dict = Depends(require_admin),
+    current_user: dict = Depends(get_current_user_record),
 ):
-    if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
-        raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
-
+    is_self = user_id == current_user.get("user_id")
+    is_admin_or_super = current_user.get("role") in {"admin", "superadmin"}
+    
+    if not is_self and not is_admin_or_super:
+        raise HTTPException(status_code=403, detail="Permission denied")
     existing = await get_user_db(user_id)
     if not existing:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if not is_superadmin(admin_user):
-        if existing.get("group_id") != admin_user.get("group_id"):
+    if is_superadmin(current_user):
+        target_group_id = user.group_id if user.group_id is not None else existing["group_id"]
+        target_role = user.role if user.role is not None else existing["role"]
+    elif is_self:
+        target_group_id = existing["group_id"]
+        target_role = existing["role"]
+    else:
+        if existing.get("group_id") != current_user.get("group_id"):
             raise HTTPException(status_code=403, detail="Permission denied")
-        if user.group_id not in (None, admin_user.get("group_id")):
+        
+        target_role = user.role if user.role is not None else existing["role"]
+        if target_role == "superadmin":
             raise HTTPException(status_code=403, detail="Permission denied")
-        if user.role == "superadmin":
-            raise HTTPException(status_code=403, detail="Permission denied")
+            
+        target_group_id = current_user.get("group_id")
 
-    # Conflict check for username
     if user.username and user.username != existing["username"]:
         if await get_user_by_username_db(user.username):
             raise HTTPException(status_code=409, detail="Username already exists")
-
-    target_group_id = user.group_id if is_superadmin(admin_user) and user.group_id is not None else existing["group_id"]
-    if not is_superadmin(admin_user):
-        target_group_id = admin_user.get("group_id")
 
     row = await update_user_db(
         user_id=user_id,
         username=user.username if user.username else existing["username"],
         group_id=target_group_id,
-        role=user.role if user.role is not None else existing["role"],
+        role=target_role,
+        password=user.password,
     )
     if not row:
-        raise HTTPException(status_code=404, detail="User not found or update failed")
+        raise HTTPException(status_code=400, detail="Update failed")
+
     return ResponseMessage(
         code=200,
         message="User updated successfully",
