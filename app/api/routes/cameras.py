@@ -405,3 +405,27 @@ async def delete_camera(camera_id: str, admin_user: dict = Depends(require_admin
         code=200,
         message="Camera deleted successfully",
     )
+
+@router.get("/{camera_id}/status", response_model=ResponseMessage)
+async def get_camera_status(
+    camera_id: str,
+    current_user: dict = Depends(get_current_user_record),
+):
+    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+        raise HTTPException(status_code=403, detail="User is not assigned to any group")
+
+    camera = await get_camera_db(
+        camera_id=camera_id,
+        group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
+    )
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+
+    return ResponseMessage(
+        code=200,
+        message="Camera status retrieved successfully",
+        data={
+            "camera_id": camera_id,
+            "status": camera.get("status", "offline")
+        },
+    )
