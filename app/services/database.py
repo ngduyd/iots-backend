@@ -211,6 +211,24 @@ async def init_db():
                 )
                 await connection.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS jobs (
+                        job_id UUID PRIMARY KEY,
+                        branch_id INT REFERENCES branches(branch_id) ON DELETE CASCADE,
+                        user_id INT REFERENCES users(user_id) ON DELETE SET NULL,
+                        secret VARCHAR(255) NOT NULL,
+                        dataset_params JSONB,
+                        feature_engineering_params JSONB,
+                        forecast_params JSONB,
+                        model_hyperparams JSONB,
+                        status VARCHAR(50) DEFAULT 'pending' NOT NULL,
+                        result JSONB,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
                     ALTER TABLE sensors
                     ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
                     """
@@ -1445,6 +1463,91 @@ async def delete_user(user_id):
     except Exception as e:
         print(f"Error deleting user: {e}")
         return False
+
+
+# --- Job Management ---
+
+async def create_job_db(job_id, branch_id, user_id, secret, dataset_params, feature_params, forecast_params, model_params):
+    try:
+        return await _fetchrow(
+            """
+            INSERT INTO jobs (
+                job_id, branch_id, user_id, secret, 
+                dataset_params, feature_engineering_params, 
+                forecast_params, model_hyperparams, status
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
+            RETURNING job_id, secret, status, created_at;
+            """,
+            job_id,
+            branch_id,
+            user_id,
+            secret,
+            json.dumps(dataset_params),
+            json.dumps(feature_params),
+            json.dumps(forecast_params),
+            json.dumps(model_params),
+        )
+    except Exception as e:
+        print(f"Error creating job in DB: {e}")
+        return None
+
+
+async def get_job_db(job_id):
+    try:
+        return await _fetchrow(
+            "SELECT * FROM jobs WHERE job_id = $1;",
+            job_id,
+        )
+    except Exception as e:
+        print(f"Error getting job from DB: {e}")
+        return None
+
+
+async def update_job_status_db(job_id, status, result=None):
+    try:
+        if result is not None:
+            return await _fetchrow(
+                """
+                UPDATE jobs 
+                SET status = $1, result = $2, updated_at = NOW()
+                WHERE job_id = $3
+                RETURNING job_id, status, updated_at;
+                """,
+                status,
+                json.dumps(result),
+                job_id,
+            )
+        else:
+            return await _fetchrow(
+                """
+                UPDATE jobs 
+                SET status = $1, updated_at = NOW()
+                WHERE job_id = $2
+                RETURNING job_id, status, updated_at;
+                """,
+                status,
+                job_id,
+            )
+    except Exception as e:
+        print(f"Error updating job status in DB: {e}")
+        return None
+
+
+async def cancel_job_db(job_id):
+    try:
+        return await _fetchrow(
+            """
+            UPDATE jobs 
+            SET status = 'cancelled', updated_at = NOW()
+            WHERE job_id = $1
+            RETURNING job_id, status;
+            """,
+            job_id,
+        )
+    except Exception as e:
+        print(f"Error cancelling job in DB: {e}")
+        return None
 
 
 async def save_image_analysis(image_id, camera_id, image_path, people_count, metadata=None):
