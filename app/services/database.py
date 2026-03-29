@@ -1024,9 +1024,7 @@ async def delete_camera(camera_id):
 
 async def create_branch(group_id, name, thresholds=None):
     try:
-        # User wants to remove default initialization upon creation
-        # thresholds will be {} by default and auto-discovered in runtime
-        final_thresholds = thresholds if thresholds is not None else {}
+        final_thresholds = thresholds if thresholds is not None else {"activate": False, "sensors": {}}
         return await _fetchrow(
             """
             INSERT INTO branches (group_id, name, thresholds)
@@ -1230,6 +1228,23 @@ async def create_alert(branch_id, message, level):
     except Exception as e:
         print(f"Error creating alert: {e}")
         return None
+
+
+async def get_alerts_by_branch(branch_id, limit=None):
+    try:
+        query = """
+            SELECT alert_id, branch_id, message, level, created_at
+            FROM alerts
+            WHERE branch_id = $1
+            ORDER BY created_at DESC
+        """
+        if limit is not None:
+            query += f" LIMIT {int(limit)}"
+        
+        return await _fetch(query + ";", branch_id)
+    except Exception as e:
+        print(f"Error getting alerts by branch: {e}")
+        return []
 
 
 async def delete_group(group_id):

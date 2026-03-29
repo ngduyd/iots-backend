@@ -29,6 +29,7 @@ from app.services.database import (
     get_sensor_values,
     get_sensors_by_branch as get_sensors_by_branch_db,
     update_branch as update_branch_db,
+    get_alerts_by_branch,
 )
 
 PREDICT_API_URL = f"{config.AI_API_URL}/predict"
@@ -308,6 +309,29 @@ async def predict_branch(
         data={
             "prediction": prediction_data,
         },
+    )
+
+@router.get("/{branch_id}/alerts", response_model=ResponseMessage)
+async def list_branch_alerts(
+    branch_id: int,
+    limit: int = Query(10, ge=1, le=100),
+    current_user: dict = Depends(get_current_user_record),
+):
+    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+        raise HTTPException(status_code=403, detail="User is not assigned to any group")
+
+    branch = await get_branch_db(
+        branch_id,
+        None if is_superadmin(current_user) else current_user.get("group_id"),
+    )
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+
+    alerts = await get_alerts_by_branch(branch_id, limit=limit)
+    return ResponseMessage(
+        code=200,
+        message="Alerts retrieved successfully",
+        data=alerts,
     )
 
 

@@ -80,6 +80,10 @@ class AlertProcessor:
         now = datetime.now()
         self._update_history(sensor_id, payload, now)
 
+        # 0. Check Global Activation Flag
+        if not thresholds.get("activate", False):
+            return
+
         level = "STATUS"
         message = "Bình thường"
         details = {}
@@ -87,6 +91,8 @@ class AlertProcessor:
         # 1. Check Fire Condition (Priority 1)
         is_fire = False
         fire_reasons = []
+        
+        sensors_thresholds = thresholds.get("sensors", {})
 
         # Temp Check
         temp = payload.get("temp")
@@ -105,7 +111,8 @@ class AlertProcessor:
             val = payload.get(key)
             if val is not None:
                 avg = self._get_average(sensor_id, key)
-                if avg and val > (avg * config.ALERT_POLLUTANT_SPIKE_RATIO) and val > (thresholds.get(key, {}).get("max", 0) or 0):
+                # Check against nested sensors_thresholds
+                if avg and val > (avg * config.ALERT_POLLUTANT_SPIKE_RATIO) and val > (sensors_thresholds.get(key, {}).get("max", 0) or 0):
                     is_fire = True
                     fire_reasons.append(f"{key.upper()} tăng vọt ({val} > avg {avg:.1f})")
 
@@ -116,8 +123,8 @@ class AlertProcessor:
             # 2. Check Environment thresholds (Priority 2)
             warning_reasons = []
             for key, val in payload.items():
-                if key in thresholds:
-                    t = thresholds[key]
+                if key in sensors_thresholds:
+                    t = sensors_thresholds[key]
                     if not t.get("activated", True):
                         continue
                         

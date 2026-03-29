@@ -139,11 +139,17 @@ class MqttRuntime:
                 return
 
             thresholds = self._threshold_cache.get(branch_id, {})
+            if "sensors" not in thresholds:
+                thresholds["sensors"] = {}
+            if "activate" not in thresholds:
+                thresholds["activate"] = False
+
+            sensors = thresholds["sensors"]
             needs_update = False
             for key in data.keys():
-                if key not in thresholds:
+                if key not in sensors:
                     default = DEFAULT_THRESHOLDS.get(key, {"min": 0, "max": 100, "activated": True})
-                    thresholds[key] = {
+                    sensors[key] = {
                         "min": default["min"],
                         "max": default["max"],
                         "activated": True
