@@ -74,6 +74,12 @@ class BranchCreateByAdminRequest(BaseModel):
     thresholds: dict | None = None
 
 
+class BranchUpdateRequest(BaseModel):
+    name: str | None = None
+    group_id: int | None = None
+    thresholds: dict | None = None
+
+
 class BranchResponse(BaseModel):
     branch_id: int
     group_id: int | None = None

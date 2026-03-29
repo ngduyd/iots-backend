@@ -10,6 +10,7 @@ from app.core import config
 from app.schemas import (
     BranchCreateByAdminRequest,
     BranchCreateRequest,
+    BranchUpdateRequest,
     CameraListResponse,
     CameraResponse,
     ResponseMessage,
@@ -171,7 +172,7 @@ async def create_branch(
 @router.put("/{branch_id}", response_model=ResponseMessage)
 async def update_branch(
     branch_id: int,
-    branch: BranchCreateRequest,
+    branch: BranchUpdateRequest,
     admin_user: dict = Depends(require_admin),
 ):
     if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
@@ -184,13 +185,15 @@ async def update_branch(
     if not existing:
         raise HTTPException(status_code=404, detail="Branch not found")
 
-    target_group_id = branch.group_id if is_superadmin(admin_user) else admin_user.get("group_id")
+    target_group_id = branch.group_id if is_superadmin(admin_user) and branch.group_id is not None else existing["group_id"]
+    target_name = branch.name if branch.name else existing["name"]
+    target_thresholds = branch.thresholds if branch.thresholds is not None else existing["thresholds"]
 
     row = await update_branch_db(
         branch_id=branch_id,
         group_id=target_group_id,
-        name=branch.name,
-        thresholds=branch.thresholds,
+        name=target_name,
+        thresholds=target_thresholds,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Branch not found")

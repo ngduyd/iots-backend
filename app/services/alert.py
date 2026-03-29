@@ -97,8 +97,6 @@ class AlertProcessor:
         
         sensors_thresholds = thresholds.get("sensors", {})
 
-        print(payload)
-
         # Temp Check
         temp = payload.get("temp")
         if temp is not None:
