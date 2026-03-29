@@ -144,6 +144,9 @@ class AlertProcessor:
                 message = "Cảnh báo môi trường: " + ", ".join(warning_reasons)
 
         # 3. Persistence & Broadcast
+        if level == "STATUS":
+            return
+
         notification = {
             "sensor_id": sensor_id,
             "branch_id": branch_id,
