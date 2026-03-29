@@ -126,7 +126,7 @@ class UserCreateByAdminRequest(BaseModel):
 
 
 class UserUpdateRequest(BaseModel):
-    username: str
+    username: str | None = None
     group_id: int | None = None
     role: str | None = None
 

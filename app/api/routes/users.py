@@ -114,14 +114,23 @@ async def update_user(
         if user.role == "superadmin":
             raise HTTPException(status_code=403, detail="Permission denied")
 
+    # Conflict check for username
+    if user.username and user.username != existing["username"]:
+        if await get_user_by_username_db(user.username):
+            raise HTTPException(status_code=409, detail="Username already exists")
+
+    target_group_id = user.group_id if is_superadmin(admin_user) and user.group_id is not None else existing["group_id"]
+    if not is_superadmin(admin_user):
+        target_group_id = admin_user.get("group_id")
+
     row = await update_user_db(
         user_id=user_id,
-        username=user.username,
-        group_id=user.group_id if is_superadmin(admin_user) else admin_user.get("group_id"),
-        role=user.role,
+        username=user.username if user.username else existing["username"],
+        group_id=target_group_id,
+        role=user.role if user.role is not None else existing["role"],
     )
     if not row:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail="User not found or update failed")
     return ResponseMessage(
         code=200,
         message="User updated successfully",
