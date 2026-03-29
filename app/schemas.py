@@ -77,7 +77,7 @@ class BranchCreateByAdminRequest(BaseModel):
 class BranchUpdateRequest(BaseModel):
     name: str | None = None
     group_id: int | None = None
-    thresholds: dict | None = None
+    thresholds: str | dict | None = None
 
 
 class BranchResponse(BaseModel):
