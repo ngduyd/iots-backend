@@ -1,6 +1,7 @@
 import uuid
 import secrets
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi.encoders import jsonable_encoder
 
 from app.schemas import (
     JobCreateRequest,
@@ -58,10 +59,10 @@ async def create_job(
         branch_id=request.dataset.branch_id,
         user_id=current_user["user_id"],
         secret=secret,
-        dataset_params=request.dataset.dict(),
-        feature_params=request.feature_engineering.dict(),
-        forecast_params=request.forecast.dict(),
-        model_params=request.model_hyperparams.dict(),
+        dataset_params=jsonable_encoder(request.dataset),
+        feature_params=jsonable_encoder(request.feature_engineering),
+        forecast_params=jsonable_encoder(request.forecast),
+        model_params=jsonable_encoder(request.model_hyperparams),
         status=status,
         message=message
     )
@@ -74,7 +75,7 @@ async def create_job(
             branch_id=request.dataset.branch_id,
             date_from=request.dataset.date_from,
             date_to=request.dataset.date_to,
-            request_payload=request.dict()
+            request_payload=jsonable_encoder(request)
         )
 
     if not job:
