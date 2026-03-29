@@ -1613,7 +1613,7 @@ async def verify_job_data_exists(branch_id: int, features: list, start_time: dat
                 FROM values v
                 JOIN sensors s ON s.sensor_id = v.sensor_id
                 WHERE s.branch_id = $1 AND v.created_at BETWEEN $2 AND $3
-                  AND v.value ? $4;
+                  AND (v.value #>> '{}')::jsonb ? $4;
                 """,
                 branch_id, start_time, end_time, feat
             )

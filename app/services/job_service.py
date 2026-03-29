@@ -14,9 +14,17 @@ async def get_job_data_single_batch(branch_id: int, date_from: datetime, date_to
 
     events = []
     for row in sensor_values:
+        val_obj = row["value"]
+        if isinstance(val_obj, str):
+            try:
+                import json
+                val_obj = json.loads(val_obj)
+            except:
+                val_obj = {}
+
         events.append({
             "ts": row["created_at"].timestamp(),
-            "data": row["value"] if isinstance(row["value"], dict) else {}
+            "data": val_obj if isinstance(val_obj, dict) else {}
         })
 
     for row in people_counts:
