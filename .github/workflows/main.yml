@@ -17,46 +17,49 @@ jobs:
         port: 22
         script: |
           set -e
-            cd /root/iots-backend
+          cd /root/iots-backend
+          git fetch --prune origin main
+          git checkout main
+          git reset --hard origin/main
 
-            if systemctl list-unit-files | grep -q '^iots-backend.service'; then
-              systemctl stop iots-backend || true
-            fi
-
-            fuser -k 8000/tcp || true
-            sleep 1
-
-            pkill -f "uvicorn" || true
-            sleep 1
-
-            git fetch --prune origin main
-            git reset --hard origin/main
-
-            if [ ! -d "venv" ]; then
-              python3 -m venv venv
-            fi
-
+          if [ ! -d "venv" ]; then
+            python3 -m venv venv
+          fi
           . venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
 
-          if systemctl list-unit-files | grep -q '^iots-backend.service'; then
-            systemctl start iots-backend
+          if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files | grep -q '^iots-backend.service'; then
+            systemctl restart iots-backend
             systemctl status iots-backend --no-pager -l | tail -n 20
           else
-            nohup venv/bin/uvicorn app.main:app \
-              --host 0.0.0.0 \
-              --port 8000 \
-              > app.log 2>&1 &
+            PID_FILE=/root/iots-backend/uvicorn.pid
+            if [ -f "$PID_FILE" ]; then
+              OLD_PID=$(cat "$PID_FILE")
+              if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" >/dev/null 2>&1; then
+                kill "$OLD_PID"
+                sleep 1
+              fi
+            fi
 
-            echo $! > uvicorn.pid
+            PORT_PID=$(ss -ltnp 2>/dev/null | awk '/:8000 / {gsub(/.*pid=|,.*/, "", $NF); print $NF; exit}')
+            if [ -n "$PORT_PID" ] && kill -0 "$PORT_PID" >/dev/null 2>&1; then
+              echo "Killing process using port 8000 (PID $PORT_PID)"
+              kill "$PORT_PID"
+              sleep 1
+            fi
+
+            venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > /root/iots-backend/app.log 2>&1 &
+            echo $! > "$PID_FILE"
             sleep 2
-
-            if ! kill -0 $(cat uvicorn.pid) >/dev/null 2>&1; then
-              echo "Process failed to start. Last 100 lines of app.log:"
-              tail -n 100 app.log
+            NEW_PID=$(cat "$PID_FILE")
+            if kill -0 "$NEW_PID" >/dev/null 2>&1; then
+              echo "iots-backend started with PID $NEW_PID"
+            else
+              echo "iots-backend failed to start. Last 100 lines of app.log:"
+              tail -n 100 /root/iots-backend/app.log || true
               exit 1
             fi
           fi
-              
             
+          
