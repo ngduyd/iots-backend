@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
-from fastapi import APIRouter, HTTPException, Request, Response, status
-from app.schemas import LoginRequest, LoginResponse, ResponseMessage
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from app.schemas import ChangePasswordRequest, LoginRequest, LoginResponse, ResponseMessage
 from app.core import config
-from app.security import clear_user_session, create_user_session, verify_login
+from app.security import clear_user_session, create_user_session, get_current_user_record, verify_login
 from app.services.database import (
     authenticate_user,
     create_user as create_user_db,
@@ -13,6 +13,7 @@ from app.services.database import (
     get_user_by_username,
     revoke_user_session,
     touch_user_session,
+    update_user as update_user_db,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -127,3 +128,40 @@ async def validate_session(request: Request, response: Response):
             user=current_user.get("username") if current_user else None,
         ),
     )
+
+@router.post("/change-password", response_model=ResponseMessage)
+async def change_password(
+    payload: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user_record),
+):
+    """
+    Change the password for the currently logged-in user.
+    """
+    # Verify old password
+    user = await authenticate_user(current_user["username"], payload.old_password)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid old password",
+        )
+
+    # Update to new password
+    success = await update_user_db(
+        user_id=current_user["user_id"],
+        username=current_user["username"],
+        group_id=current_user.get("group_id"),
+        role=current_user.get("role"),
+        password=payload.new_password,
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update password",
+        )
+
+    return ResponseMessage(
+        code=200,
+        message="Password changed successfully",
+    )
+    

@@ -132,6 +132,11 @@ class UserUpdateRequest(BaseModel):
     password: str | None = None
 
 
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
 class UserResponse(BaseModel):
     user_id: int
     group_id: int | None = None
