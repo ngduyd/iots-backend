@@ -22,7 +22,9 @@ jobs:
           git checkout main
           git reset --hard origin/main
 
-          python3 -m venv venv
+          if [ ! -d "venv" ]; then
+            python3 -m venv venv
+          fi
           . venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
@@ -47,7 +49,7 @@ jobs:
               sleep 1
             fi
 
-            nohup venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > /root/iots-backend/app.log 2>&1 &
+            venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > /root/iots-backend/app.log 2>&1 &
             echo $! > "$PID_FILE"
             sleep 2
             NEW_PID=$(cat "$PID_FILE")
