@@ -194,6 +194,8 @@ class JobUpdateRequest(BaseModel):
     status: str
     result: dict | None = None
     message: str | None = None
+    model_id: str | None = None
+    model_name: str | None = None
 
 
 class JobResponse(BaseModel):
@@ -210,3 +212,21 @@ class JobResponse(BaseModel):
     forecast_params: dict
     model_hyperparams: dict
     result: dict | None = None
+    model_id: str | None = None
+    model_name: str | None = None
+
+
+class ModelResponse(BaseModel):
+    model_id: str
+    group_id: int
+    name: str
+    created_at: datetime
+
+
+class ModelUpdateRequest(BaseModel):
+    name: str
+
+
+class ModelListResponse(BaseModel):
+    count: int
+    items: list[ModelResponse]

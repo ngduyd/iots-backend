@@ -18,6 +18,7 @@ from app.services.database import (
     get_branch as get_branch_db,
     verify_job_data_exists,
     get_jobs_db,
+    get_or_create_model,
 )
 from app.services.job_service import process_and_notify_ai_server, get_job_defaults_data
 
@@ -147,11 +148,27 @@ async def update_job_server_to_server(
     if secrets.compare_digest(job["secret"], update_data.secret) is False:
         raise HTTPException(status_code=401, detail="Invalid job secret")
 
+    # Extract model info, preferring top-level but falling back to result dict
+    res_model_id = update_data.model_id
+    if not res_model_id and update_data.result:
+        res_model_id = update_data.result.get("model_id")
+    
+    if res_model_id:
+        res_model_name = update_data.model_name or f"Model {str(res_model_id)[:8]}"
+        branch = await get_branch_db(job["branch_id"])
+        if branch:
+            await get_or_create_model(
+                group_id=branch["group_id"],
+                model_id=res_model_id,
+                name=res_model_name
+            )
+
     updated = await update_job_status_db(
         job_id=job_id,
         status=update_data.status,
         result=update_data.result,
-        message=update_data.message
+        message=update_data.message,
+        model_id=res_model_id
     )
 
     if not updated:

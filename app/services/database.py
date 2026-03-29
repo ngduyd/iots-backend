@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import time
+import uuid
 import asyncpg
 from app.core import config
 from datetime import datetime
@@ -373,6 +374,22 @@ async def init_db():
                 await connection.execute(
                     """
                     DROP TRIGGER IF EXISTS trg_sync_sensor_status_from_value ON values;
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS models (
+                        model_id UUID PRIMARY KEY,
+                        group_id INT REFERENCES groups(group_id) ON DELETE CASCADE,
+                        name VARCHAR(255) NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
+                    ALTER TABLE jobs
+                    ADD COLUMN IF NOT EXISTS model_id UUID REFERENCES models(model_id);
                     """
                 )
                 await connection.execute(
@@ -1546,7 +1563,12 @@ async def create_job_db(job_id, branch_id, user_id, secret, dataset_params, feat
 async def get_job_db(job_id):
     try:
         return await _fetchrow(
-            "SELECT * FROM jobs WHERE job_id = $1;",
+            """
+            SELECT j.*, m.name as model_name 
+            FROM jobs j
+            LEFT JOIN models m ON m.model_id = j.model_id
+            WHERE j.job_id = $1;
+            """,
             job_id,
         )
     except Exception as e:
@@ -1557,9 +1579,10 @@ async def get_job_db(job_id):
 async def get_jobs_db(group_id=None, status=None, limit=100):
     try:
         query = """
-            SELECT j.* 
+            SELECT j.*, m.name as model_name
             FROM jobs j
             JOIN branches b ON b.branch_id = j.branch_id
+            LEFT JOIN models m ON m.model_id = j.model_id
             WHERE 1=1
         """
         params = []
@@ -1584,35 +1607,37 @@ async def get_jobs_db(group_id=None, status=None, limit=100):
         return []
 
 
-async def update_job_status_db(job_id, status, result=None, message=None):
+async def update_job_status_db(job_id, status, result=None, message=None, model_id=None):
     try:
         if result is not None:
             return await _fetchrow(
                 """
                 UPDATE jobs 
-                SET status = $1, result = $2, message = COALESCE($3, message), updated_at = NOW()
-                WHERE job_id = $4
-                RETURNING job_id, status, message, updated_at;
+                SET status = $1, result = $2, message = COALESCE($3, message), model_id = COALESCE($4, model_id), updated_at = NOW()
+                WHERE job_id = $5
+                RETURNING job_id, status, message, model_id, updated_at;
                 """,
                 status,
                 json.dumps(result),
                 message,
+                uuid.UUID(model_id) if model_id else None,
                 job_id,
             )
         else:
             return await _fetchrow(
                 """
                 UPDATE jobs 
-                SET status = $1, message = COALESCE($2, message), updated_at = NOW()
-                WHERE job_id = $3
-                RETURNING job_id, status, message, updated_at;
+                SET status = $1, message = COALESCE($2, message), model_id = COALESCE($3, model_id), updated_at = NOW()
+                WHERE job_id = $4
+                RETURNING job_id, status, message, model_id, updated_at;
                 """,
                 status,
                 message,
+                uuid.UUID(model_id) if model_id else None,
                 job_id,
             )
     except Exception as e:
-        print(f"Error updating job status in DB: {e}")
+        print(f"Error updating job status: {e}")
         return None
 
 
@@ -1875,3 +1900,51 @@ async def delete_expired_user_sessions():
     except Exception as e:
         print(f"Error deleting expired user sessions: {e}")
         return False
+
+
+async def get_or_create_model(group_id: int, model_id: str, name: str):
+    try:
+        row = await _fetchrow(
+            """
+            INSERT INTO models (model_id, group_id, name)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (model_id) DO UPDATE SET name = EXCLUDED.name
+            RETURNING model_id, name;
+            """,
+            uuid.UUID(model_id) if isinstance(model_id, str) else model_id,
+            group_id,
+            name,
+        )
+        return row
+    except Exception as e:
+        print(f"Error in get_or_create_model: {e}")
+        return None
+
+
+async def get_models_db(group_id: int):
+    try:
+        return await _fetch(
+            """
+            SELECT model_id, name, created_at 
+            FROM models 
+            WHERE group_id = $1 
+            ORDER BY created_at DESC;
+            """, 
+            group_id
+        )
+    except Exception as e:
+        print(f"Error getting models: {e}")
+        return []
+
+
+async def update_model_name_db(model_id: str, name: str, group_id: int):
+    try:
+        return await _fetchrow(
+            "UPDATE models SET name = $1 WHERE model_id = $2 AND group_id = $3 RETURNING model_id, name;",
+            name,
+            uuid.UUID(model_id) if isinstance(model_id, str) else model_id,
+            group_id
+        )
+    except Exception as e:
+        print(f"Error updating model name: {e}")
+        return None
