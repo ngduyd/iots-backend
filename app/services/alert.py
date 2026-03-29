@@ -81,7 +81,9 @@ class AlertProcessor:
         self._update_history(sensor_id, payload, now)
 
         # 0. Check Global Activation Flag
-        print(f"[ALERT] Thresholds: {thresholds}")
+        if isinstance(thresholds, str):
+            thresholds = json.loads(thresholds)
+            
         if not thresholds.get("activate", False):
             return
 

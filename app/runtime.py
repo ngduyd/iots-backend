@@ -17,8 +17,6 @@ from app.services.alert import alert_processor
 from app.services.mqtt_client import create_mqtt_client
 from app.services.image_analysis_service import process_camera_frame
 
-import traceback
-
 class MqttRuntime:
     def __init__(self):
         self.client = None
@@ -117,7 +115,6 @@ class MqttRuntime:
                         await alert_processor.process_message(sid, branch_id, data, thresholds)
                     except Exception as e:
                         print(f"[ALERT] Error processing alerts for {sid}: {e}")
-                        traceback.print_exc()
 
             try:
                 await save_messages_batch(batch)
