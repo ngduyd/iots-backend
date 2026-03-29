@@ -52,8 +52,8 @@ jobs:
             echo $! > uvicorn.pid
             sleep 2
 
-            if kill -0 $(cat uvicorn.pid) >/dev/null 2>&1; then
-            else
+            if ! kill -0 $(cat uvicorn.pid) >/dev/null 2>&1; then
+              echo "Process failed to start. Last 100 lines of app.log:"
               tail -n 100 app.log
               exit 1
             fi
