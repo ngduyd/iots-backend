@@ -221,6 +221,7 @@ async def init_db():
                         forecast_params JSONB,
                         model_hyperparams JSONB,
                         status VARCHAR(50) DEFAULT 'pending' NOT NULL,
+                        message TEXT,
                         result JSONB,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -259,6 +260,12 @@ async def init_db():
                     """
                     ALTER TABLE cameras
                     RENAME COLUMN active TO activate;
+                    """
+                )
+                await connection.execute(
+                    """
+                    ALTER TABLE jobs
+                    ADD COLUMN IF NOT EXISTS message TEXT;
                     """
                 )
                 await connection.execute(
@@ -1473,17 +1480,17 @@ async def delete_user(user_id):
 
 # --- Job Management ---
 
-async def create_job_db(job_id, branch_id, user_id, secret, dataset_params, feature_params, forecast_params, model_params):
+async def create_job_db(job_id, branch_id, user_id, secret, dataset_params, feature_params, forecast_params, model_params, status='pending', message=None):
     try:
         return await _fetchrow(
             """
             INSERT INTO jobs (
                 job_id, branch_id, user_id, secret, 
                 dataset_params, feature_engineering_params, 
-                forecast_params, model_hyperparams, status
+                forecast_params, model_hyperparams, status, message
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
-            RETURNING job_id, secret, status, created_at;
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            RETURNING job_id, secret, status, message, created_at;
             """,
             job_id,
             branch_id,
@@ -1493,6 +1500,8 @@ async def create_job_db(job_id, branch_id, user_id, secret, dataset_params, feat
             json.dumps(feature_params),
             json.dumps(forecast_params),
             json.dumps(model_params),
+            status,
+            message,
         )
     except Exception as e:
         print(f"Error creating job in DB: {e}")
@@ -1510,34 +1519,107 @@ async def get_job_db(job_id):
         return None
 
 
-async def update_job_status_db(job_id, status, result=None):
+async def get_jobs_db(group_id=None, status=None, limit=100):
+    try:
+        query = """
+            SELECT j.* 
+            FROM jobs j
+            JOIN branches b ON b.branch_id = j.branch_id
+            WHERE 1=1
+        """
+        params = []
+        param_index = 1
+
+        if group_id is not None:
+            query += f" AND b.group_id = ${param_index}"
+            params.append(group_id)
+            param_index += 1
+
+        if status is not None:
+            query += f" AND j.status = ${param_index}"
+            params.append(status)
+            param_index += 1
+
+        query += f" ORDER BY j.created_at DESC LIMIT ${param_index}"
+        params.append(limit)
+
+        return await _fetch(query, *params)
+    except Exception as e:
+        print(f"Error getting jobs from DB: {e}")
+        return []
+
+
+async def update_job_status_db(job_id, status, result=None, message=None):
     try:
         if result is not None:
             return await _fetchrow(
                 """
                 UPDATE jobs 
-                SET status = $1, result = $2, updated_at = NOW()
-                WHERE job_id = $3
-                RETURNING job_id, status, updated_at;
+                SET status = $1, result = $2, message = COALESCE($3, message), updated_at = NOW()
+                WHERE job_id = $4
+                RETURNING job_id, status, message, updated_at;
                 """,
                 status,
                 json.dumps(result),
+                message,
                 job_id,
             )
         else:
             return await _fetchrow(
                 """
                 UPDATE jobs 
-                SET status = $1, updated_at = NOW()
-                WHERE job_id = $2
-                RETURNING job_id, status, updated_at;
+                SET status = $1, message = COALESCE($2, message), updated_at = NOW()
+                WHERE job_id = $3
+                RETURNING job_id, status, message, updated_at;
                 """,
                 status,
+                message,
                 job_id,
             )
     except Exception as e:
         print(f"Error updating job status in DB: {e}")
         return None
+
+
+async def verify_job_data_exists(branch_id: int, features: list, start_time: datetime, end_time: datetime):
+    try:
+        missing_features = []
+        
+        sensor_features = [f for f in features if f != "people"]
+        for feat in sensor_features:
+            count = await _fetchrow(
+                """
+                SELECT COUNT(*) as count
+                FROM values v
+                JOIN sensors s ON s.sensor_id = v.sensor_id
+                WHERE s.branch_id = $1 AND v.created_at BETWEEN $2 AND $3
+                  AND v.value ? $4;
+                """,
+                branch_id, start_time, end_time, feat
+            )
+            if not count or count["count"] == 0:
+                missing_features.append(feat)
+
+        if "people" in features:
+            count = await _fetchrow(
+                """
+                SELECT COUNT(*) as count
+                FROM image_analysis ia
+                JOIN cameras c ON c.camera_id = ia.camera_id
+                WHERE c.branch_id = $1 AND ia.created_at BETWEEN $2 AND $3;
+                """,
+                branch_id, start_time, end_time
+            )
+            if not count or count["count"] == 0:
+                missing_features.append("people")
+
+        if missing_features:
+            return False, f"Insufficient data for features: {', '.join(missing_features)}"
+        
+        return True, ""
+    except Exception as e:
+        print(f"Error verifying job data: {e}")
+        return False, f"System error during data verification: {str(e)}"
 
 
 async def cancel_job_db(job_id):

@@ -10,6 +10,7 @@ from app.schemas import (
     FeatureEngineeringParams,
     ForecastParams,
     ModelHyperparams,
+    PaginationQuery,
 )
 from app.security import get_current_user_record, is_superadmin
 from app.services.database import (
@@ -18,6 +19,8 @@ from app.services.database import (
     update_job_status_db,
     cancel_job_db,
     get_branch as get_branch_db,
+    verify_job_data_exists,
+    get_jobs_db,
 )
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
@@ -64,7 +67,6 @@ async def create_job(
     request: JobCreateRequest,
     current_user: dict = Depends(get_current_user_record),
 ):
-    # Verify branch access
     branch = await get_branch_db(
         request.dataset.branch_id,
         None if is_superadmin(current_user) else current_user.get("group_id"),
@@ -75,6 +77,16 @@ async def create_job(
     job_id = str(uuid.uuid4())
     secret = secrets.token_urlsafe(32)
 
+    data_ok, reason = await verify_job_data_exists(
+        request.dataset.branch_id,
+        request.dataset.features,
+        request.dataset.date_from,
+        request.dataset.date_to
+    )
+
+    status = "pending" if data_ok else "failed"
+    message = None if data_ok else reason
+
     job = await create_job_db(
         job_id=job_id,
         branch_id=request.dataset.branch_id,
@@ -84,15 +96,18 @@ async def create_job(
         feature_params=request.feature_engineering.dict(),
         forecast_params=request.forecast.dict(),
         model_params=request.model_hyperparams.dict(),
+        status=status,
+        message=message
     )
 
     if not job:
         raise HTTPException(status_code=500, detail="Failed to create job in database")
 
+    msg = "Job created successfully" if data_ok else f"Job created with failure: {reason}"
     return ResponseMessage(
         code=201, 
-        message="Job created successfully", 
-        data={"job_id": job_id, "secret": secret}
+        message=msg, 
+        data={"job_id": job_id, "status": status, "message": message}
     )
 
 @router.get("/status/{job_id}", response_model=ResponseMessage)
@@ -160,10 +175,27 @@ async def update_job_server_to_server(
     updated = await update_job_status_db(
         job_id=job_id,
         status=update_data.status,
-        result=update_data.result
+        result=update_data.result,
+        message=update_data.message
     )
 
     if not updated:
         raise HTTPException(status_code=500, detail="Failed to update job status")
 
     return ResponseMessage(code=200, message="Job status updated by server", data=updated)
+
+@router.get("", response_model=ResponseMessage)
+async def get_jobs(
+    status: str | None = Query(None, description="Filter by job status (pending, running, completed, failed, cancelled)"),
+    query: PaginationQuery = Depends(),
+    current_user: dict = Depends(get_current_user_record),
+):
+    """
+    List jobs, optionally filtered by group and status.
+    """
+    jobs = await get_jobs_db(
+        group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
+        status=status,
+        limit=query.limit
+    )
+    return ResponseMessage(code=200, message="Jobs retrieved", data=jobs)

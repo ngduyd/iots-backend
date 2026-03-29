@@ -186,6 +186,7 @@ class JobUpdateRequest(BaseModel):
     secret: str
     status: str
     result: dict | None = None
+    message: str | None = None
 
 
 class JobResponse(BaseModel):
@@ -193,6 +194,7 @@ class JobResponse(BaseModel):
     branch_id: int
     user_id: int | None = None
     status: str
+    message: str | None = None
     secret: str | None = None
     created_at: datetime
     updated_at: datetime
