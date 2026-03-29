@@ -1,9 +1,10 @@
 import asyncio
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from app.services.alert import notification_manager
 
-router = APIRouter(prefix="/notifications", tags=["notifications"])
+from app.services.alert_service import notification_manager
+
+router = APIRouter()
 
 async def event_generator():
     queue = asyncio.Queue()

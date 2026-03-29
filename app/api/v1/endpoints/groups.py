@@ -1,24 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.schemas import GroupCreateRequest, ResponseMessage
-from app.security import get_current_user_record, is_superadmin, require_admin
-from app.services.database import (
-	create_group as create_group_db,
-	delete_group as delete_group_db,
-	get_group as get_group_db,
-	get_groups as get_groups_db,
-	update_group as update_group_db,
-)
 
-router = APIRouter(prefix="/api/groups", tags=["groups"])
+from app.schemas.group import GroupCreateRequest
+from app.schemas.common import ResponseMessage
+from app.core import security
+from app.services import branch_service
 
+router = APIRouter()
 
 @router.get("", response_model=ResponseMessage)
-async def list_groups(current_user: dict = Depends(get_current_user_record)):
-	if is_superadmin(current_user):
-		groups = await get_groups_db()
+async def list_groups(current_user: dict = Depends(security.get_current_user_record)):
+	if security.is_superadmin(current_user):
+		groups = await branch_service.get_groups()
 	else:
 		group_id = current_user.get("group_id")
-		group = await get_group_db(group_id) if group_id is not None else None
+		group = await branch_service.get_group(group_id) if group_id is not None else None
 		groups = [group] if group else []
 
 	return ResponseMessage(
@@ -27,13 +22,12 @@ async def list_groups(current_user: dict = Depends(get_current_user_record)):
 		data=groups,
 	)
 
-
 @router.get("/{group_id}", response_model=ResponseMessage)
-async def get_group(group_id: int, current_user: dict = Depends(get_current_user_record)):
-	if not is_superadmin(current_user) and current_user.get("group_id") != group_id:
+async def get_group(group_id: int, current_user: dict = Depends(security.get_current_user_record)):
+	if not security.is_superadmin(current_user) and current_user.get("group_id") != group_id:
 		raise HTTPException(status_code=403, detail="Permission denied")
 
-	row = await get_group_db(group_id)
+	row = await branch_service.get_group(group_id)
 	if not row:
 		raise HTTPException(status_code=404, detail="Group not found")
 
@@ -43,13 +37,12 @@ async def get_group(group_id: int, current_user: dict = Depends(get_current_user
 		data=row,
 	)
 
-
 @router.post("", response_model=ResponseMessage)
-async def create_group(group: GroupCreateRequest, admin_user: dict = Depends(require_admin)):
-	if not is_superadmin(admin_user):
+async def create_group(group: GroupCreateRequest, admin_user: dict = Depends(security.require_admin)):
+	if not security.is_superadmin(admin_user):
 		raise HTTPException(status_code=403, detail="Only superadmin can create groups")
 
-	row = await create_group_db(name=group.name)
+	row = await branch_service.create_group(name=group.name)
 	if not row:
 		raise HTTPException(status_code=400, detail="Cannot create group")
 
@@ -59,17 +52,16 @@ async def create_group(group: GroupCreateRequest, admin_user: dict = Depends(req
 		data=row,
 	)
 
-
 @router.put("/{group_id}", response_model=ResponseMessage)
 async def update_group(
 	group_id: int,
 	group: GroupCreateRequest,
-	admin_user: dict = Depends(require_admin),
+	admin_user: dict = Depends(security.require_admin),
 ):
-	if not is_superadmin(admin_user) and admin_user.get("group_id") != group_id:
+	if not security.is_superadmin(admin_user) and admin_user.get("group_id") != group_id:
 		raise HTTPException(status_code=403, detail="Permission denied")
 
-	row = await update_group_db(group_id=group_id, name=group.name)
+	row = await branch_service.update_group(group_id=group_id, name=group.name)
 	if not row:
 		raise HTTPException(status_code=404, detail="Group not found")
 
@@ -79,13 +71,12 @@ async def update_group(
 		data=row,
 	)
 
-
 @router.delete("/{group_id}", response_model=ResponseMessage)
-async def delete_group(group_id: int, admin_user: dict = Depends(require_admin)):
-	if not is_superadmin(admin_user):
+async def delete_group(group_id: int, admin_user: dict = Depends(security.require_admin)):
+	if not security.is_superadmin(admin_user):
 		raise HTTPException(status_code=403, detail="Only superadmin can delete groups")
 
-	deleted = await delete_group_db(group_id)
+	deleted = await branch_service.delete_group(group_id)
 	if not deleted:
 		raise HTTPException(status_code=404, detail="Group not found")
 

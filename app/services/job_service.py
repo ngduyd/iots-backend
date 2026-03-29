@@ -1,16 +1,10 @@
-import requests
 from datetime import datetime, timedelta
 
-from app.core import config
-from app.services.database import (
-    get_branch_data_for_export,
-    update_job_status_db
-)
-
-TRAIN_API_URL = f"{config.AI_API_URL}/train"
+from app.repositories import branch_repo, job_repo
+from app.services import prediction_service
 
 async def get_job_data_single_batch(branch_id: int, date_from: datetime, date_to: datetime):
-    sensor_values, people_counts = await get_branch_data_for_export(branch_id, date_from, date_to)
+    sensor_values, people_counts = await branch_repo.get_branch_data_for_export(branch_id, date_from, date_to)
 
     events = []
     for row in sensor_values:
@@ -76,34 +70,32 @@ async def get_job_data_single_batch(branch_id: int, date_from: datetime, date_to
     return final_output
 
 async def process_and_notify_ai_server(job_id: str, secret: str, branch_id: int, date_from: datetime, date_to: datetime, request_payload: dict):
-    try:
-        data_batch = await get_job_data_single_batch(branch_id, date_from, date_to)
-        
-        if not data_batch:
-            await update_job_status_db(job_id, "failed", message="No data found for the selected time range")
-            return
+    data_batch = await get_job_data_single_batch(branch_id, date_from, date_to)
+    
+    if not data_batch:
+        await job_repo.update_job_status(job_id, "failed", message="No data found for the selected time range")
+        return
 
-        payload = {
-            "job_id": job_id,
-            "secret": secret,
-            "dataset": request_payload.get("dataset"),
-            "feature_engineering": request_payload.get("feature_engineering"),
-            "forecast": request_payload.get("forecast"),
-            "model_hyperparams": request_payload.get("model_hyperparams"),
-            "data": data_batch
-        }
-        print(f"[JOB-SERVICE] Notifying AI server for job {job_id} at {TRAIN_API_URL}")
-        resp = requests.post(TRAIN_API_URL, json=payload, timeout=60)
-        resp.raise_for_status()
+    # Sử dụng prediction_service để gọi đến AI server
+    await prediction_service.notify_ai_server_for_job(job_id, secret, data_batch, request_payload)
 
-        await update_job_status_db(job_id, "running", message="Data sent to AI server, processing started")
-        print(f"[JOB-SERVICE] Job {job_id} successfully started by AI server")
+async def create_job(job_id, branch_id, user_id, secret, dataset_params, feature_params, forecast_params, model_params):
+    return await job_repo.create_job(job_id, branch_id, user_id, secret, dataset_params, feature_params, forecast_params, model_params)
 
-    except Exception as e:
-        error_msg = f"Failed to notify AI server: {str(e)}"
-        print(f"[JOB-SERVICE] Error: {error_msg}")
-        await update_job_status_db(job_id, "failed", message=error_msg)
+async def get_job(job_id: str):
+    return await job_repo.get_job(job_id)
 
+async def get_jobs(group_id: int = None, status: str = None, limit: int = 100):
+    return await job_repo.get_jobs(group_id, status, limit)
+
+async def cancel_job(job_id: str):
+    return await job_repo.cancel_job(job_id)
+
+async def get_models(group_id: int):
+    return await job_repo.get_models(group_id)
+
+async def update_model_name(model_id: str, name: str, group_id: int):
+    return await job_repo.update_model_name(model_id, name, group_id)
 
 def get_job_defaults_data():
     now = datetime.now()

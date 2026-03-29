@@ -57,3 +57,11 @@ ALERT_TEMP_DELTA_MAX = float(os.environ.get("ALERT_TEMP_DELTA_MAX", 5.0))
 ALERT_TEMP_WINDOW = int(os.environ.get("ALERT_TEMP_WINDOW", 30))
 ALERT_TEMP_ABSOLUTE_MAX = float(os.environ.get("ALERT_TEMP_ABSOLUTE_MAX", 45.0))
 ALERT_POLLUTANT_SPIKE_RATIO = float(os.environ.get("ALERT_POLLUTANT_SPIKE_RATIO", 1.5))
+
+DEFAULT_THRESHOLDS = {
+    "co2": {"min": DEFAULT_CO2_MIN, "max": DEFAULT_CO2_MAX, "activated": True},
+    "temp": {"min": DEFAULT_TEMP_MIN, "max": DEFAULT_TEMP_MAX, "activated": True},
+    "rh": {"min": DEFAULT_HUMID_MIN, "max": DEFAULT_HUMID_MAX, "activated": True},
+    "pm2_5": {"min": DEFAULT_PM25_MIN, "max": DEFAULT_PM25_MAX, "activated": True},
+    "pm10": {"min": DEFAULT_PM10_MIN, "max": DEFAULT_PM10_MAX, "activated": True},
+}

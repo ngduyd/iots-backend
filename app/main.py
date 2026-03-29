@@ -1,51 +1,51 @@
 from contextlib import asynccontextmanager
+from datetime import datetime
 from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
-from app.api.routes.auth import router as auth_router
-from app.api.routes.branches import router as branches_router
-from app.api.routes.cameras import router as cameras_router
-from app.api.routes.groups import router as groups_router
-from app.api.routes.sensors import router as sensors_router
-from app.api.routes.notifications import router as notifications_router
-from app.api.routes.users import current_user_router, router as users_router
-from app.api.routes.jobs import router as jobs_router
-from app.api.routes.models import router as models_router
-from app.core import config
-from app.runtime import runtime
-from app.services.database import close_db, ensure_default_admin_user, init_db, reset_all_cameras_offline
 
+from app.api.v1.api import api_router as api_v1_router
+from app.core import config
+from app.workers.runtime import runtime
+from app.db.session import close_db
+from app.db.init_db import init_db, ensure_default_admin_user
+from app.repositories.camera_repo import reset_all_cameras_offline
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    print("Initializing database...")
+    print("[INIT] Initializing database...")
     try:
         await init_db()
-        admin_user = await ensure_default_admin_user()
-        if admin_user is not None:
-            print("Default admin and superadmin users are ready")
+        admin_ready = await ensure_default_admin_user()
+        if admin_ready:
+            print("[INIT] Default admin and superadmin users are ready")
         else:
-            print("Cannot ensure default admin/superadmin users")
+            print("[INIT] Warning: Could not ensure default admin/superadmin users")
     except Exception as e:
-        print(f"Database initialization failed: {e}")
+        print(f"[INIT] Database initialization failed: {e}")
 
+    # Ensure all cameras are marked offline on startup
     await reset_all_cameras_offline()
 
+    # Start the background MQTT and camera analysis runtime
     await runtime.start()
+    
     try:
         yield
     finally:
+        # Graceful shutdown
         await runtime.stop()
         await close_db()
 
-
 app = FastAPI(
-    title="MQTT Backend API",
+    title="IoT Backend API",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
+
+# Session middleware for authentication
 app.add_middleware(
     SessionMiddleware,
     secret_key=config.SESSION_SECRET,
@@ -53,13 +53,13 @@ app.add_middleware(
     same_site="lax",
     https_only=False,
 )
-app.include_router(auth_router)
-app.include_router(groups_router)
-app.include_router(sensors_router)
-app.include_router(notifications_router)
-app.include_router(cameras_router)
-app.include_router(branches_router)
-app.include_router(current_user_router)
-app.include_router(users_router)
-app.include_router(jobs_router)
-app.include_router(models_router)
+
+# Mount versioned API routes
+app.include_router(api_v1_router, prefix="/api/v1")
+
+# Mount legacy prefix for backward compatibility
+app.include_router(api_v1_router, prefix="/api")
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}

@@ -1,56 +1,29 @@
-import asyncio
 import csv
 import io
-import json
 from datetime import datetime
-from urllib import error, request
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from app.core import config
-from app.schemas import (
-    BranchCreateByAdminRequest,
-    BranchCreateRequest,
-    BranchUpdateRequest,
-    CameraListResponse,
-    CameraResponse,
-    ResponseMessage,
-    SensorListResponse,
-    SensorStatus,
-)
-from app.security import get_current_user_record, is_superadmin, require_admin
-from app.runtime import runtime
-from app.services.database import (
-    create_branch as create_branch_db,
-    delete_branch as delete_branch_db,
-    get_branch as get_branch_db,
-    get_branch_data_for_export,
-    get_branches as get_branches_db,
-    get_camera_by_branch as get_camera_by_branch_db,
-    get_cameras_by_branch as get_cameras_by_branch_db,
-    get_latest_people_count_by_branch,
-    get_sensor_values,
-    get_sensors_by_branch as get_sensors_by_branch_db,
-    update_branch as update_branch_db,
-    get_alerts_by_branch,
-    mark_alert_as_read_db,
-)
 
-PREDICT_API_URL = f"{config.AI_API_URL}/predict"
-PREDICT_ROWS = 125
-PREDICT_TIMEOUT_SECONDS = 20
+from app.schemas.branch import BranchCreateByAdminRequest, BranchUpdateRequest
+from app.schemas.camera import CameraListResponse, CameraResponse
+from app.schemas.sensor import SensorListResponse, SensorStatus
+from app.schemas.common import ResponseMessage
+from app.core import security
+from app.services import branch_service, sensor_service, camera_service, prediction_service
+from app.workers import runtime
 
-router = APIRouter(prefix="/api/branches", tags=["branches"])
-
+router = APIRouter()
 
 @router.get("", response_model=ResponseMessage)
-async def list_branches(current_user: dict = Depends(get_current_user_record)):
-    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+async def list_branches(current_user: dict = Depends(security.get_current_user_record)):
+    if not security.is_superadmin(current_user) and current_user.get("group_id") is None:
+        # If user has no group and not superadmin, they shouldn't see anything or 403
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
-    if is_superadmin(current_user):
-        branches = await get_branches_db()
+    if security.is_superadmin(current_user):
+        branches = await branch_service.get_branches()
     else:
-        branches = await get_branches_db(group_id=current_user.get("group_id"))
+        branches = await branch_service.get_branches(group_id=current_user.get("group_id"))
 
     return ResponseMessage(
         code=200,
@@ -58,15 +31,14 @@ async def list_branches(current_user: dict = Depends(get_current_user_record)):
         data=branches
     )
 
-
 @router.get("/{branch_id}", response_model=ResponseMessage)
-async def get_branch(branch_id: int, current_user: dict = Depends(get_current_user_record)):
-    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+async def get_branch(branch_id: int, current_user: dict = Depends(security.get_current_user_record)):
+    if not security.is_superadmin(current_user) and current_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
-    row = await get_branch_db(
+    row = await branch_service.get_branch(
         branch_id,
-        None if is_superadmin(current_user) else current_user.get("group_id"),
+        None if security.is_superadmin(current_user) else current_user.get("group_id"),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Branch not found")
@@ -76,24 +48,23 @@ async def get_branch(branch_id: int, current_user: dict = Depends(get_current_us
         data=row
     )
 
-
 @router.get("/{branch_id}/sensors", response_model=ResponseMessage)
 async def list_branch_sensors(
     branch_id: int,
     limit: int = Query(default=100, ge=1, le=1000),
-    current_user: dict = Depends(get_current_user_record),
+    current_user: dict = Depends(security.get_current_user_record),
 ):
-    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+    if not security.is_superadmin(current_user) and current_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
-    branch = await get_branch_db(
+    branch = await branch_service.get_branch(
         branch_id,
-        None if is_superadmin(current_user) else current_user.get("group_id"),
+        None if security.is_superadmin(current_user) else current_user.get("group_id"),
     )
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
 
-    rows = await get_sensors_by_branch_db(branch_id=branch_id, limit=limit)
+    rows = await sensor_service.sensor_repo.get_sensors_by_branch(branch_id=branch_id, limit=limit)
     items = [
         SensorStatus(
             sensor_id=row.get("sensor_id"),
@@ -108,25 +79,24 @@ async def list_branch_sensors(
         message="Branch sensors retrieved successfully",
         data=SensorListResponse(count=len(items), items=items),
     )
-    
 
 @router.get("/{branch_id}/cameras", response_model=ResponseMessage)
 async def list_branch_cameras(
     branch_id: int,
     limit: int = Query(default=100, ge=1, le=1000),
-    current_user: dict = Depends(get_current_user_record),
+    current_user: dict = Depends(security.get_current_user_record),
 ):
-    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+    if not security.is_superadmin(current_user) and current_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
-    branch = await get_branch_db(
+    branch = await branch_service.get_branch(
         branch_id,
-        None if is_superadmin(current_user) else current_user.get("group_id"),
+        None if security.is_superadmin(current_user) else current_user.get("group_id"),
     )
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
     
-    rows = await get_cameras_by_branch_db(branch_id=branch_id, limit=limit)
+    rows = await camera_service.camera_repo.get_cameras_by_branch(branch_id=branch_id, limit=limit)
     items = [
         CameraResponse(
             camera_id=row.get("camera_id"),
@@ -143,20 +113,19 @@ async def list_branch_cameras(
         data=CameraListResponse(count=len(items), items=items),
     )
 
-
 @router.post("", response_model=ResponseMessage)
 async def create_branch(
     branch: BranchCreateByAdminRequest,
-    admin_user: dict = Depends(require_admin),
+    admin_user: dict = Depends(security.require_admin),
 ):
-    if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
+    if not security.is_superadmin(admin_user) and admin_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
 
-    if is_superadmin(admin_user) and branch.group_id is None:
+    if security.is_superadmin(admin_user) and branch.group_id is None:
         raise HTTPException(status_code=400, detail="group_id is required for superadmin")
 
-    group_id = branch.group_id if is_superadmin(admin_user) else admin_user.get("group_id")
-    row = await create_branch_db(
+    group_id = branch.group_id if security.is_superadmin(admin_user) else admin_user.get("group_id")
+    row = await branch_service.create_branch(
         group_id=group_id,
         name=branch.name,
         thresholds=branch.thresholds,
@@ -169,31 +138,27 @@ async def create_branch(
         data=row
     )
 
-
 @router.put("/{branch_id}", response_model=ResponseMessage)
 async def update_branch(
     branch_id: int,
     branch: BranchUpdateRequest,
-    admin_user: dict = Depends(require_admin),
+    admin_user: dict = Depends(security.require_admin),
 ):
-    if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
+    if not security.is_superadmin(admin_user) and admin_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
 
-    existing = await get_branch_db(
+    existing = await branch_service.get_branch(
         branch_id,
-        None if is_superadmin(admin_user) else admin_user.get("group_id"),
+        None if security.is_superadmin(admin_user) else admin_user.get("group_id"),
     )
     if not existing:
         raise HTTPException(status_code=404, detail="Branch not found")
 
-    target_group_id = branch.group_id if is_superadmin(admin_user) and branch.group_id is not None else existing["group_id"]
+    target_group_id = branch.group_id if security.is_superadmin(admin_user) and branch.group_id is not None else existing["group_id"]
     target_name = branch.name if branch.name else existing["name"]
     target_thresholds = branch.thresholds if branch.thresholds is not None else existing["thresholds"]
 
-    print(target_thresholds)
-    print(type(target_thresholds))
-
-    row = await update_branch_db(
+    row = await branch_service.update_branch(
         branch_id=branch_id,
         group_id=target_group_id,
         name=target_name,
@@ -211,20 +176,19 @@ async def update_branch(
         data=row
     )
 
-
 @router.delete("/{branch_id}", response_model=ResponseMessage)
-async def delete_branch(branch_id: int, admin_user: dict = Depends(require_admin)):
-    if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
+async def delete_branch(branch_id: int, admin_user: dict = Depends(security.require_admin)):
+    if not security.is_superadmin(admin_user) and admin_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
 
-    existing = await get_branch_db(
+    existing = await branch_service.get_branch(
         branch_id,
-        None if is_superadmin(admin_user) else admin_user.get("group_id"),
+        None if security.is_superadmin(admin_user) else admin_user.get("group_id"),
     )
     if not existing:
         raise HTTPException(status_code=404, detail="Branch not found")
 
-    deleted = await delete_branch_db(branch_id)
+    deleted = await branch_service.delete_branch(branch_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Branch not found")
     return ResponseMessage(
@@ -233,43 +197,43 @@ async def delete_branch(branch_id: int, admin_user: dict = Depends(require_admin
         data=None
     )
 
-
 @router.get("/{branch_id}/predict", response_model=ResponseMessage)
 async def predict_branch(
     branch_id: int,
-    current_user: dict = Depends(get_current_user_record),
+    current_user: dict = Depends(security.get_current_user_record),
 ):
-    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+    if not security.is_superadmin(current_user) and current_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
-    branch = await get_branch_db(
+    branch = await branch_service.get_branch(
         branch_id,
-        None if is_superadmin(current_user) else current_user.get("group_id"),
+        None if security.is_superadmin(current_user) else current_user.get("group_id"),
     )
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
 
-    camera = await get_camera_by_branch_db(branch_id)
+    camera = await camera_service.camera_repo.get_camera_by_branch(branch_id)
     if not camera or camera.get("status") != "online":
         raise HTTPException(
             status_code=400,
             detail="Branch does not have an online camera. Cannot predict.",
         )
 
-    sensors = await get_sensors_by_branch_db(branch_id=branch_id, limit=1)
+    sensors = await sensor_service.sensor_repo.get_sensors_by_branch(branch_id=branch_id, limit=1)
     if not sensors:
         raise HTTPException(status_code=400, detail="Branch has no sensors")
     sensor = sensors[0]
     sensor_id = sensor["sensor_id"]
 
-    rows = await get_sensor_values(sensor_id=sensor_id, limit=PREDICT_ROWS)
+    PREDICT_ROWS = 125
+    rows = await sensor_service.sensor_repo.get_sensor_values(sensor_id=sensor_id, limit=PREDICT_ROWS)
     if len(rows) < PREDICT_ROWS:
         raise HTTPException(
             status_code=400,
             detail=f"Not enough sensor data. Required {PREDICT_ROWS} rows, got {len(rows)}.",
         )
 
-    people_rows = await get_latest_people_count_by_branch(branch_id)
+    people_rows = await camera_service.camera_repo.get_latest_people_count_by_branch(branch_id)
     people = [
         {
             "value": row["people_count"],
@@ -287,33 +251,10 @@ async def predict_branch(
         for row in chronological_rows
     ]
 
-    payload = {
-        "senser_id": sensor_id,
-        "rows": values,
-        "model_id": "default",
-        "people": people,
-    }
-
-    req = request.Request(
-        PREDICT_API_URL,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
     try:
-        response_text = await asyncio.to_thread(_send_predict_request, req)
-        prediction_data = json.loads(response_text) if response_text else None
-    except error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
-        raise HTTPException(
-            status_code=502,
-            detail=f"Prediction service returned HTTP {exc.code}: {body}",
-        )
-    except error.URLError as exc:
-        raise HTTPException(status_code=502, detail=f"Cannot connect to prediction service: {exc.reason}")
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=502, detail="Prediction service returned invalid JSON")
+        prediction_data = await prediction_service.predict_branch(sensor_id, values, people)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
     return ResponseMessage(
         code=200,
@@ -328,58 +269,54 @@ async def list_branch_alerts(
     branch_id: int,
     limit: int = Query(10, ge=1, le=100),
     unread_only: bool = Query(False),
-    current_user: dict = Depends(get_current_user_record),
+    current_user: dict = Depends(security.get_current_user_record),
 ):
-    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+    if not security.is_superadmin(current_user) and current_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
-    branch = await get_branch_db(
+    branch = await branch_service.get_branch(
         branch_id,
-        None if is_superadmin(current_user) else current_user.get("group_id"),
+        None if security.is_superadmin(current_user) else current_user.get("group_id"),
     )
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
 
-    alerts = await get_alerts_by_branch(branch_id, limit=limit, unread_only=unread_only)
+    alerts = await branch_service.get_alerts_by_branch(branch_id, limit=limit, unread_only=unread_only)
     return ResponseMessage(
         code=200,
         message="Alerts retrieved successfully",
         data=alerts,
     )
 
-
 @router.post("/{branch_id}/alerts/{alert_id}/read", response_model=ResponseMessage)
 async def mark_alert_as_read(
     alert_id: int,
-    current_user: dict = Depends(get_current_user_record),
+    current_user: dict = Depends(security.get_current_user_record),
 ):
-    """Mark a specific alert as read."""
-    updated = await mark_alert_as_read_db(alert_id)
+    updated = await branch_service.mark_alert_as_read(alert_id)
     if not updated:
         raise HTTPException(status_code=404, detail="Alert not found")
         
     return ResponseMessage(code=200, message="Alert marked as read", data=updated)
-
 
 @router.get("/{branch_id}/export")
 async def export_branch_data(
     branch_id: int,
     from_time: datetime = Query(...),
     to_time: datetime = Query(...),
-    current_user: dict = Depends(get_current_user_record),
+    current_user: dict = Depends(security.get_current_user_record),
 ):
-    """Export branch sensor data and people count to CSV."""
-    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+    if not security.is_superadmin(current_user) and current_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
-    branch = await get_branch_db(
+    branch = await branch_service.get_branch(
         branch_id,
-        None if is_superadmin(current_user) else current_user.get("group_id"),
+        None if security.is_superadmin(current_user) else current_user.get("group_id"),
     )
     if not branch:
         raise HTTPException(status_code=404, detail="Branch not found")
 
-    sensor_values, people_counts = await get_branch_data_for_export(branch_id, from_time, to_time)
+    sensor_values, people_counts = await branch_service.branch_repo.get_branch_data_for_export(branch_id, from_time, to_time)
 
     extra_keys = set()
     for row in sensor_values:
@@ -431,8 +368,3 @@ async def export_branch_data(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
-
-
-def _send_predict_request(req: request.Request) -> str:
-    with request.urlopen(req, timeout=PREDICT_TIMEOUT_SECONDS) as response:
-        return response.read().decode("utf-8")

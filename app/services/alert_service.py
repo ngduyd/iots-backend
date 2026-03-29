@@ -2,8 +2,9 @@ import asyncio
 import json
 from datetime import datetime, timedelta
 from collections import deque
+
 from app.core import config
-from app.services.database import update_branch_thresholds, DEFAULT_THRESHOLDS, create_alert
+from app.repositories import alert_repo
 
 class NotificationManager:
     def __init__(self):
@@ -80,7 +81,6 @@ class AlertProcessor:
         now = datetime.now()
         self._update_history(sensor_id, payload, now)
 
-        # 0. Check Global Activation Flag
         if isinstance(thresholds, str):
             thresholds = json.loads(thresholds)
             
@@ -89,15 +89,11 @@ class AlertProcessor:
 
         level = "STATUS"
         message = "Bình thường"
-        details = {}
-
-        # 1. Check Fire Condition (Priority 1)
-        is_fire = False
         fire_reasons = []
+        is_fire = False
         
         sensors_thresholds = thresholds.get("sensors", {})
 
-        # Temp Check
         temp = payload.get("temp")
         if temp is not None:
             if temp >= config.ALERT_TEMP_ABSOLUTE_MAX:
@@ -109,12 +105,10 @@ class AlertProcessor:
                 is_fire = True
                 fire_reasons.append(f"Nhiệt độ tăng vọt (+{temp_delta}°C)")
 
-        # Pollutant Check (CO2, PM)
         for key in ["co2", "pm2_5", "pm10"]:
             val = payload.get(key)
             if val is not None:
                 avg = self._get_average(sensor_id, key)
-                # Check against nested sensors_thresholds
                 if avg and val > (avg * config.ALERT_POLLUTANT_SPIKE_RATIO) and val > (sensors_thresholds.get(key, {}).get("max", 0) or 0):
                     is_fire = True
                     fire_reasons.append(f"{key.upper()} tăng vọt ({val} > avg {avg:.1f})")
@@ -123,17 +117,14 @@ class AlertProcessor:
             level = "CRITICAL"
             message = "CẢNH BÁO HỎA HOẠN: " + ", ".join(fire_reasons)
         else:
-            # 2. Check Environment thresholds (Priority 2)
             warning_reasons = []
             for key, val in payload.items():
                 if key in sensors_thresholds:
                     t = sensors_thresholds[key]
                     if not t.get("activated", True):
                         continue
-                        
                     t_min = t.get("min")
                     t_max = t.get("max")
-                    
                     if t_min is not None and val < t_min:
                         warning_reasons.append(f"{key} thấp ({val} < {t_min})")
                     if t_max is not None and val > t_max:
@@ -143,7 +134,6 @@ class AlertProcessor:
                 level = "WARNING"
                 message = "Cảnh báo môi trường: " + ", ".join(warning_reasons)
 
-        # 3. Persistence & Broadcast
         if level == "STATUS":
             return
 
@@ -157,11 +147,6 @@ class AlertProcessor:
         }
 
         await notification_manager.broadcast(notification)
-
-        await create_alert(
-            branch_id=branch_id,
-            message=message,
-            level=level
-        )
+        await alert_repo.create_alert(branch_id=branch_id, message=message, level=level)
 
 alert_processor = AlertProcessor()

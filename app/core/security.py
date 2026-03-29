@@ -1,7 +1,8 @@
 import hmac
 from fastapi import Depends, HTTPException, Request, status
+
 from app.core import config
-from app.services.database import get_active_user_session, get_user
+from app.services import user_service
 
 
 def verify_login(username: str, password: str) -> bool:
@@ -33,14 +34,14 @@ def get_current_user(request: Request) -> str:
 async def get_current_user_record(
     session_id: str = Depends(get_current_user),
 ) -> dict:
-    session = await get_active_user_session(session_id)
+    session = await user_service.user_repo.get_active_user_session(session_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session is invalid or expired",
         )
 
-    user = await get_user(session.get("user_id"))
+    user = await user_service.get_user(session.get("user_id"))
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

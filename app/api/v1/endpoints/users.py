@@ -1,40 +1,30 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.schemas import ResponseMessage, UserCreateByAdminRequest, UserUpdateRequest
-from app.security import get_current_user_record, is_superadmin, require_admin
-from app.services.database import (
-    create_user as create_user_db,
-    delete_user as delete_user_db,
-    get_user as get_user_db,
-    get_user_by_username as get_user_by_username_db,
-    get_users as get_users_db,
-    update_user as update_user_db,
-)
 
-router = APIRouter(prefix="/api/users", tags=["users"])
-current_user_router = APIRouter(prefix="/api/user", tags=["users"])
+from app.schemas.user import UserCreateByAdminRequest, UserUpdateRequest
+from app.schemas.common import ResponseMessage
+from app.core import security
+from app.services import user_service
 
+router = APIRouter()
+current_user_router = APIRouter()
 
 @current_user_router.get("", response_model=ResponseMessage)
-async def get_current_user_profile(current_user: dict = Depends(get_current_user_record)):
-    row = current_user
-    if not row:
-        raise HTTPException(status_code=404, detail="Current user not found")
+async def get_current_user_profile(current_user: dict = Depends(security.get_current_user_record)):
     return ResponseMessage(
         code=200,
         message="Current user retrieved successfully",
-        data=row,
+        data=current_user,
     )
 
-
 @router.get("", response_model=ResponseMessage)
-async def list_users(admin_user: dict = Depends(require_admin)):
-    if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
+async def list_users(admin_user: dict = Depends(security.require_admin)):
+    if not security.is_superadmin(admin_user) and admin_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
 
-    if is_superadmin(admin_user):
-        users = await get_users_db()
+    if security.is_superadmin(admin_user):
+        users = await user_service.get_users()
     else:
-        users = await get_users_db(group_id=admin_user.get("group_id"))
+        users = await user_service.get_users(group_id=admin_user.get("group_id"))
 
     return ResponseMessage(
         code=200,
@@ -42,14 +32,13 @@ async def list_users(admin_user: dict = Depends(require_admin)):
         data=users,
     )
 
-
 @router.get("/{user_id}", response_model=ResponseMessage)
-async def get_user(user_id: int, admin_user: dict = Depends(require_admin)):
-    row = await get_user_db(user_id)
+async def get_user(user_id: int, admin_user: dict = Depends(security.require_admin)):
+    row = await user_service.get_user(user_id)
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if not is_superadmin(admin_user) and row.get("group_id") != admin_user.get("group_id"):
+    if not security.is_superadmin(admin_user) and row.get("group_id") != admin_user.get("group_id"):
         raise HTTPException(status_code=403, detail="Permission denied")
 
     return ResponseMessage(
@@ -58,27 +47,26 @@ async def get_user(user_id: int, admin_user: dict = Depends(require_admin)):
         data=row,
     )
 
-
 @router.post("", response_model=ResponseMessage)
 async def create_user(
     user: UserCreateByAdminRequest,
-    admin_user: dict = Depends(require_admin),
+    admin_user: dict = Depends(security.require_admin),
 ):
-    if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
+    if not security.is_superadmin(admin_user) and admin_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
 
-    if not is_superadmin(admin_user) and user.role == "superadmin":
+    if not security.is_superadmin(admin_user) and user.role == "superadmin":
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    if is_superadmin(admin_user) and user.group_id is None:
+    if security.is_superadmin(admin_user) and user.group_id is None:
         raise HTTPException(status_code=400, detail="group_id is required for superadmin")
 
-    existing_user = await get_user_by_username_db(user.username)
+    existing_user = await user_service.get_user_by_username(user.username)
     if existing_user:
         raise HTTPException(status_code=409, detail="Username already exists")
 
-    group_id = user.group_id if is_superadmin(admin_user) else admin_user.get("group_id")
-    row = await create_user_db(
+    group_id = user.group_id if security.is_superadmin(admin_user) else admin_user.get("group_id")
+    row = await user_service.create_user(
         username=user.username,
         password=user.password,
         group_id=group_id,
@@ -92,23 +80,23 @@ async def create_user(
         data=row,
     )
 
-
 @router.put("/{user_id}", response_model=ResponseMessage)
 async def update_user(
     user_id: int,
     user: UserUpdateRequest,
-    current_user: dict = Depends(get_current_user_record),
+    current_user: dict = Depends(security.get_current_user_record),
 ):
     is_self = user_id == current_user.get("user_id")
     is_admin_or_super = current_user.get("role") in {"admin", "superadmin"}
     
     if not is_self and not is_admin_or_super:
         raise HTTPException(status_code=403, detail="Permission denied")
-    existing = await get_user_db(user_id)
+    
+    existing = await user_service.get_user(user_id)
     if not existing:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if is_superadmin(current_user):
+    if security.is_superadmin(current_user):
         target_group_id = user.group_id if user.group_id is not None else existing["group_id"]
         target_role = user.role if user.role is not None else existing["role"]
     elif is_self:
@@ -121,16 +109,15 @@ async def update_user(
         target_role = user.role if user.role is not None else existing["role"]
         if target_role == "superadmin":
             raise HTTPException(status_code=403, detail="Permission denied")
-            
         target_group_id = current_user.get("group_id")
 
     if user.username and user.username != existing["username"]:
-        if await get_user_by_username_db(user.username):
+        if await user_service.get_user_by_username(user.username):
             raise HTTPException(status_code=409, detail="Username already exists")
 
-    row = await update_user_db(
+    row = await user_service.update_user(
         user_id=user_id,
-        username=user.username if user.username else existing["username"],
+        username=user.username,
         group_id=target_group_id,
         role=target_role,
         password=user.password,
@@ -144,23 +131,22 @@ async def update_user(
         data=row,
     )
 
-
 @router.delete("/{user_id}", response_model=ResponseMessage)
-async def delete_user(user_id: int, admin_user: dict = Depends(require_admin)):
-    if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
+async def delete_user(user_id: int, admin_user: dict = Depends(security.require_admin)):
+    if not security.is_superadmin(admin_user) and admin_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
 
-    existing = await get_user_db(user_id)
+    existing = await user_service.get_user(user_id)
     if not existing:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if not is_superadmin(admin_user):
+    if not security.is_superadmin(admin_user):
         if existing.get("group_id") != admin_user.get("group_id"):
             raise HTTPException(status_code=403, detail="Permission denied")
         if existing.get("role") == "superadmin":
             raise HTTPException(status_code=403, detail="Permission denied")
 
-    deleted = await delete_user_db(user_id)
+    deleted = await user_service.delete_user(user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="User not found")
     return ResponseMessage(

@@ -1,23 +1,24 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
-from app.schemas import SensorCreateRequest, SensorListResponse, SensorStatus, SensorValue, SensorValueListResponse, ResponseMessage
-from app.security import get_current_user_record, is_superadmin, require_admin
-from app.services.database import add_sensor as create_sensor, get_branch, get_sensor, get_sensor_name, get_sensor_values, get_sensors, update_sensor as update_sensor_db
 
-router = APIRouter(prefix="/api/sensors", tags=["sensors"])
+from app.schemas.sensor import SensorCreateRequest, SensorListResponse, SensorStatus, SensorValue, SensorValueListResponse
+from app.schemas.common import ResponseMessage
+from app.core import security
+from app.services import sensor_service, branch_service
 
+router = APIRouter()
 
 @router.get("", response_model=ResponseMessage)
 async def list_sensors(
     limit: int = Query(default=100, ge=1, le=1000),
-    current_user: dict = Depends(get_current_user_record),
+    current_user: dict = Depends(security.get_current_user_record),
 ):
-    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+    if not security.is_superadmin(current_user) and current_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
-    rows = await get_sensors(
+    rows = await sensor_service.get_sensors(
         limit=limit,
-        group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
+        group_id=None if security.is_superadmin(current_user) else current_user.get("group_id"),
     )
     items = [
         SensorStatus(
@@ -34,18 +35,17 @@ async def list_sensors(
         data=SensorListResponse(count=len(items), items=items),
     )
 
-
 @router.get("/{sensor_id}", response_model=ResponseMessage)
 async def get_sensor_by_id(
     sensor_id: str,
-    current_user: dict = Depends(get_current_user_record),
+    current_user: dict = Depends(security.get_current_user_record),
 ):
-    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+    if not security.is_superadmin(current_user) and current_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
-    row = await get_sensor(
+    row = await sensor_service.get_sensor(
         sensor_id=sensor_id,
-        group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
+        group_id=None if security.is_superadmin(current_user) else current_user.get("group_id"),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Sensor not found")
@@ -62,30 +62,29 @@ async def get_sensor_by_id(
         ),
     )
 
-
 @router.get("/{sensor_id}/values", response_model=ResponseMessage)
 async def list_sensor_values(
     sensor_id: str,
     limit: int = Query(default=1000000, ge=1, le=1000000),
     from_time: datetime | None = Query(default=None),
     to_time: datetime | None = Query(default=None),
-    current_user: dict = Depends(get_current_user_record),
+    current_user: dict = Depends(security.get_current_user_record),
 ):
-    if not is_superadmin(current_user) and current_user.get("group_id") is None:
+    if not security.is_superadmin(current_user) and current_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="User is not assigned to any group")
 
     if from_time is not None and to_time is not None and from_time > to_time:
         raise HTTPException(status_code=400, detail="from_time must be less than or equal to to_time")
 
-    rows = await get_sensor_values(
+    rows = await sensor_service.sensor_repo.get_sensor_values(
         sensor_id=sensor_id,
         limit=limit,
-        group_id=None if is_superadmin(current_user) else current_user.get("group_id"),
+        group_id=None if security.is_superadmin(current_user) else current_user.get("group_id"),
         from_time=from_time,
         to_time=to_time,
     )
 
-    sensor_name = await get_sensor_name(sensor_id)
+    sensor_name = await sensor_service.sensor_repo.get_sensor_name(sensor_id)
 
     items = [
         SensorValue(
@@ -101,19 +100,19 @@ async def list_sensor_values(
     )
 
 @router.post("", response_model=ResponseMessage)
-async def add_sensor(sensor: SensorCreateRequest, admin_user: dict = Depends(require_admin)):
-    if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
+async def add_sensor(sensor: SensorCreateRequest, admin_user: dict = Depends(security.require_admin)):
+    if not security.is_superadmin(admin_user) and admin_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
 
-    branch = await get_branch(
+    branch = await branch_service.get_branch(
         sensor.branch_id,
-        None if is_superadmin(admin_user) else admin_user.get("group_id"),
+        None if security.is_superadmin(admin_user) else admin_user.get("group_id"),
     )
     if not branch:
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    row = await create_sensor(
-        sensor_name=sensor.name,
+    row = await sensor_service.add_sensor(
+        name=sensor.name,
         branch_id=sensor.branch_id,
     )
     if not row:
@@ -132,28 +131,28 @@ async def add_sensor(sensor: SensorCreateRequest, admin_user: dict = Depends(req
     )
 
 @router.put("/{sensor_id}", response_model=ResponseMessage)
-async def update_sensor(sensor_id: str, sensor: SensorCreateRequest, admin_user: dict = Depends(require_admin)):
-    if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
+async def update_sensor(sensor_id: str, sensor: SensorCreateRequest, admin_user: dict = Depends(security.require_admin)):
+    if not security.is_superadmin(admin_user) and admin_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
 
-    existing_sensor = await get_sensor(
+    existing_sensor = await sensor_service.get_sensor(
         sensor_id=sensor_id,
-        group_id=None if is_superadmin(admin_user) else admin_user.get("group_id"),
+        group_id=None if security.is_superadmin(admin_user) else admin_user.get("group_id"),
     )
     if not existing_sensor:
         raise HTTPException(status_code=404, detail="Sensor not found")
 
-    branch = await get_branch(
+    branch = await branch_service.get_branch(
         sensor.branch_id,
-        None if is_superadmin(admin_user) else admin_user.get("group_id"),
+        None if security.is_superadmin(admin_user) else admin_user.get("group_id"),
     )
     if not branch:
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    row = await update_sensor_db(
-        sensor_name=sensor.name,
-        branch_id=sensor.branch_id,
+    row = await sensor_service.update_sensor(
         sensor_id=sensor_id,
+        name=sensor.name,
+        branch_id=sensor.branch_id,
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot update sensor")
@@ -171,20 +170,18 @@ async def update_sensor(sensor_id: str, sensor: SensorCreateRequest, admin_user:
     )
 
 @router.delete("/{sensor_id}", response_model=ResponseMessage)
-async def delete_sensor(sensor_id: str, admin_user: dict = Depends(require_admin)):
-    if not is_superadmin(admin_user) and admin_user.get("group_id") is None:
+async def delete_sensor(sensor_id: str, admin_user: dict = Depends(security.require_admin)):
+    if not security.is_superadmin(admin_user) and admin_user.get("group_id") is None:
         raise HTTPException(status_code=403, detail="Admin user is not assigned to any group")
 
-    existing_sensor = await get_sensor(
+    existing_sensor = await sensor_service.get_sensor(
         sensor_id=sensor_id,
-        group_id=None if is_superadmin(admin_user) else admin_user.get("group_id"),
+        group_id=None if security.is_superadmin(admin_user) else admin_user.get("group_id"),
     )
     if not existing_sensor:
         raise HTTPException(status_code=404, detail="Sensor not found")
 
-    row = await update_sensor_db(
-        sensor_name=None,
-        branch_id=None,
+    row = await sensor_service.update_sensor(
         sensor_id=sensor_id,
         delete=True,
     )

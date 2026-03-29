@@ -1,10 +1,9 @@
 import asyncio
 import json
-import os
-from datetime import datetime
 import requests
+
 from app.core import config
-from app.services.database import save_image_analysis, get_camera
+from app.repositories import camera_repo
 
 
 PEOPLE_COUNT_API_URL = f"{config.AI_API_URL}/count-people"
@@ -19,7 +18,7 @@ async def _get_camera_cached(camera_id: str):
     cached_at = _camera_cache_time.get(camera_id, 0)
     if camera_id in _camera_cache and now - cached_at < 60:
         return _camera_cache[camera_id]
-    camera = await get_camera(camera_id)
+    camera = await camera_repo.get_camera(camera_id)
     _camera_cache[camera_id] = camera
     _camera_cache_time[camera_id] = now
     return camera
@@ -35,7 +34,7 @@ async def process_camera_frame(camera_id: str):
     if response is None:
         return None
 
-    return await save_image_analysis(
+    return await camera_repo.save_image_analysis(
         image_id=response.get("image_id"),
         camera_id=camera_id,
         image_path=response.get("image_path"),

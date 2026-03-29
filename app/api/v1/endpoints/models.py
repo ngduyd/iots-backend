@@ -1,18 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException
-from app.schemas import ResponseMessage, ModelListResponse, ModelUpdateRequest, ModelResponse
-from app.security import get_current_user_record
-from app.services.database import get_models_db, update_model_name_db
 
-router = APIRouter(prefix="/api/models", tags=["Models"])
+from app.schemas.model import ModelListResponse, ModelUpdateRequest
+from app.schemas.common import ResponseMessage
+from app.core import security
+from app.services import job_service
+
+router = APIRouter()
 
 @router.get("", response_model=ResponseMessage)
-async def list_models(current_user: dict = Depends(get_current_user_record)):
+async def list_models(current_user: dict = Depends(security.get_current_user_record)):
     group_id = current_user.get("group_id")
     if group_id is None:
         return ResponseMessage(code=200, message="Models retrieved", data=ModelListResponse(count=0, items=[]))
     
-    models = await get_models_db(group_id)
-    # Ensure model_id is string for JSON serialization if it's a UUID object
+    models = await job_service.job_repo.get_models(group_id)
     formatted_models = []
     for m in models:
         m_dict = dict(m)
@@ -29,17 +30,16 @@ async def list_models(current_user: dict = Depends(get_current_user_record)):
 async def update_model_name(
     model_id: str,
     request: ModelUpdateRequest,
-    current_user: dict = Depends(get_current_user_record)
+    current_user: dict = Depends(security.get_current_user_record)
 ):
     group_id = current_user.get("group_id")
     if group_id is None:
         raise HTTPException(status_code=400, detail="User does not belong to a group")
         
-    updated = await update_model_name_db(model_id, request.name, group_id)
+    updated = await job_service.job_repo.update_model_name(model_id, request.name, group_id)
     if not updated:
         raise HTTPException(status_code=404, detail="Model not found or access denied")
         
-    # Format UUID to string
     res = dict(updated)
     res["model_id"] = str(res["model_id"])
     
