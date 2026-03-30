@@ -66,18 +66,21 @@ class BranchCreateRequest(BaseModel):
     group_id: int
     name: str
     thresholds: dict | None = None
+    model_id: str | None = None
 
 
 class BranchCreateByAdminRequest(BaseModel):
     group_id: int | None = None
     name: str
     thresholds: dict | None = None
+    model_id: str | None = None
 
 
 class BranchUpdateRequest(BaseModel):
     name: str | None = None
     group_id: int | None = None
     thresholds: dict | None = None
+    model_id: str | None = None
 
 
 class BranchResponse(BaseModel):
@@ -85,6 +88,7 @@ class BranchResponse(BaseModel):
     group_id: int | None = None
     name: str
     thresholds: dict | None = None
+    model_id: str | None = None
     created_at: datetime
 
 

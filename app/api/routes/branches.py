@@ -160,6 +160,7 @@ async def create_branch(
         group_id=group_id,
         name=branch.name,
         thresholds=branch.thresholds,
+        model_id=branch.model_id,
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot create branch")
@@ -189,6 +190,7 @@ async def update_branch(
     target_group_id = branch.group_id if is_superadmin(admin_user) and branch.group_id is not None else existing["group_id"]
     target_name = branch.name if branch.name else existing["name"]
     target_thresholds = branch.thresholds if branch.thresholds is not None else existing["thresholds"]
+    target_model_id = branch.model_id if branch.model_id is not None else (str(existing["model_id"]) if existing.get("model_id") else None)
 
     print(target_thresholds)
     print(type(target_thresholds))
@@ -198,6 +200,7 @@ async def update_branch(
         group_id=target_group_id,
         name=target_name,
         thresholds=target_thresholds,
+        model_id=target_model_id,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Branch not found")
@@ -290,7 +293,7 @@ async def predict_branch(
     payload = {
         "senser_id": sensor_id,
         "rows": values,
-        "model_id": "default",
+        "model_id": str(branch["model_id"]) if branch.get("model_id") else "default",
         "people": people,
     }
 

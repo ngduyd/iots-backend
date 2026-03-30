@@ -140,6 +140,7 @@ async def init_db():
                         group_id INT REFERENCES groups(group_id),
                         name VARCHAR(100) NOT NULL,
                         thresholds JSONB,
+                        model_id UUID REFERENCES models(model_id) ON DELETE SET NULL,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );
                     """
@@ -157,6 +158,12 @@ async def init_db():
                             ALTER TABLE branches RENAME COLUMN metadata TO thresholds;
                         END IF;
                     END $$;
+                    """
+                )
+                await connection.execute(
+                    """
+                    ALTER TABLE branches
+                    ADD COLUMN IF NOT EXISTS model_id UUID REFERENCES models(model_id) ON DELETE SET NULL;
                     """
                 )
                 await connection.execute(
@@ -1071,18 +1078,19 @@ async def delete_camera(camera_id):
         print(f"Error deleting camera: {e}")
         return False
 
-async def create_branch(group_id, name, thresholds=None):
+async def create_branch(group_id, name, thresholds=None, model_id=None):
     try:
         final_thresholds = thresholds if thresholds is not None else {"activate": False, "sensors": {}}
         return await _fetchrow(
             """
-            INSERT INTO branches (group_id, name, thresholds)
-            VALUES ($1, $2, $3::jsonb)
-            RETURNING branch_id, group_id, name, thresholds, created_at;
+            INSERT INTO branches (group_id, name, thresholds, model_id)
+            VALUES ($1, $2, $3::jsonb, $4)
+            RETURNING branch_id, group_id, name, thresholds, model_id, created_at;
             """,
             group_id,
             name,
             json.dumps(final_thresholds),
+            uuid.UUID(model_id) if model_id else None,
         )
     except Exception as e:
         print(f"Error creating branch: {e}")
@@ -1094,7 +1102,7 @@ async def get_branches(group_id=None):
         if group_id is not None:
             return await _fetch(
                 """
-                SELECT branch_id, group_id, name, thresholds, created_at
+                SELECT branch_id, group_id, name, thresholds, model_id, created_at
                 FROM branches
                 WHERE group_id = $1
                 ORDER BY branch_id DESC;
@@ -1104,7 +1112,7 @@ async def get_branches(group_id=None):
 
         return await _fetch(
             """
-            SELECT branch_id, group_id, name, thresholds, created_at FROM branches;
+            SELECT branch_id, group_id, name, thresholds, model_id, created_at FROM branches;
             """
         )
     except Exception as e:
@@ -1117,7 +1125,7 @@ async def get_branch(branch_id, group_id=None):
         if group_id is not None:
             return await _fetchrow(
                 """
-                SELECT branch_id, group_id, name, thresholds, created_at
+                SELECT branch_id, group_id, name, thresholds, model_id, created_at
                 FROM branches
                 WHERE branch_id = $1 AND group_id = $2;
                 """,
@@ -1127,7 +1135,7 @@ async def get_branch(branch_id, group_id=None):
 
         return await _fetchrow(
             """
-            SELECT branch_id, group_id, name, thresholds, created_at
+            SELECT branch_id, group_id, name, thresholds, model_id, created_at
             FROM branches
             WHERE branch_id = $1;
             """,
@@ -1138,18 +1146,19 @@ async def get_branch(branch_id, group_id=None):
         return None
 
 
-async def update_branch(branch_id, group_id, name, thresholds=None):
+async def update_branch(branch_id, group_id, name, thresholds=None, model_id=None):
     try:
         return await _fetchrow(
             """
             UPDATE branches
-            SET group_id = $1, name = $2, thresholds = $3::jsonb
-            WHERE branch_id = $4
-            RETURNING branch_id, group_id, name, thresholds, created_at;
+            SET group_id = $1, name = $2, thresholds = $3::jsonb, model_id = $4
+            WHERE branch_id = $5
+            RETURNING branch_id, group_id, name, thresholds, model_id, created_at;
             """,
             group_id,
             name,
             json.dumps(thresholds) if thresholds else None,
+            uuid.UUID(model_id) if model_id else None,
             branch_id,
         )
     except Exception as e:
