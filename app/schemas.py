@@ -230,6 +230,7 @@ class ModelResponse(BaseModel):
     group_id: int
     name: str
     created_at: datetime
+    deleted_at: datetime | None = None
 
 
 class ModelUpdateRequest(BaseModel):

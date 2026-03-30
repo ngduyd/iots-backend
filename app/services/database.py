@@ -389,8 +389,14 @@ async def init_db():
                         model_id UUID PRIMARY KEY,
                         group_id INT REFERENCES groups(group_id) ON DELETE CASCADE,
                         name VARCHAR(255) NOT NULL,
-                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        deleted_at TIMESTAMPTZ
                     );
+                    """
+                )
+                await connection.execute(
+                    """
+                    ALTER TABLE models ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
                     """
                 )
                 await connection.execute(
@@ -1911,6 +1917,18 @@ async def delete_expired_user_sessions():
         return False
 
 
+async def delete_model_db(model_id: str, group_id: int):
+    try:
+        return await _fetchrow(
+            "UPDATE models SET deleted_at = NOW() WHERE model_id = $1 AND group_id = $2 AND deleted_at IS NULL RETURNING model_id, group_id, name, created_at, deleted_at;",
+            uuid.UUID(model_id) if isinstance(model_id, str) else model_id,
+            group_id
+        )
+    except Exception as e:
+        print(f"Error deleting model: {e}")
+        return None
+
+
 async def get_or_create_model(group_id: int, model_id: str, name: str):
     try:
         row = await _fetchrow(
@@ -1934,9 +1952,9 @@ async def get_models_db(group_id: int):
     try:
         return await _fetch(
             """
-            SELECT model_id, group_id, name, created_at 
+            SELECT model_id, group_id, name, created_at, deleted_at
             FROM models 
-            WHERE group_id = $1 
+            WHERE group_id = $1 AND deleted_at IS NULL
             ORDER BY created_at DESC;
             """, 
             group_id
@@ -1949,7 +1967,7 @@ async def get_models_db(group_id: int):
 async def update_model_name_db(model_id: str, name: str, group_id: int):
     try:
         return await _fetchrow(
-            "UPDATE models SET name = $1 WHERE model_id = $2 AND group_id = $3 RETURNING model_id, group_id, name, created_at;",
+            "UPDATE models SET name = $1 WHERE model_id = $2 AND group_id = $3 AND deleted_at IS NULL RETURNING model_id, group_id, name, created_at, deleted_at;",
             name,
             uuid.UUID(model_id) if isinstance(model_id, str) else model_id,
             group_id
