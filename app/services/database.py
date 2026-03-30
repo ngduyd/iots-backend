@@ -1090,7 +1090,7 @@ async def create_branch(group_id, name, thresholds=None, model_id=None):
             group_id,
             name,
             json.dumps(final_thresholds),
-            uuid.UUID(model_id) if model_id else None,
+            uuid.UUID(model_id) if isinstance(model_id, str) and model_id else model_id,
         )
     except Exception as e:
         print(f"Error creating branch: {e}")
@@ -1158,7 +1158,7 @@ async def update_branch(branch_id, group_id, name, thresholds=None, model_id=Non
             group_id,
             name,
             json.dumps(thresholds) if thresholds else None,
-            uuid.UUID(model_id) if model_id else None,
+            uuid.UUID(model_id) if isinstance(model_id, str) and model_id else model_id,
             branch_id,
         )
     except Exception as e:

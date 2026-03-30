@@ -187,13 +187,25 @@ async def update_branch(
     if not existing:
         raise HTTPException(status_code=404, detail="Branch not found")
 
-    target_group_id = branch.group_id if is_superadmin(admin_user) and branch.group_id is not None else existing["group_id"]
-    target_name = branch.name if branch.name else existing["name"]
-    target_thresholds = branch.thresholds if branch.thresholds is not None else existing["thresholds"]
-    target_model_id = branch.model_id if branch.model_id is not None else (str(existing["model_id"]) if existing.get("model_id") else None)
+    # Use model_dump(exclude_unset=True) to distinguish between not-provided and null.
+    update_data = branch.model_dump(exclude_unset=True)
+    
+    # Permission check for group_id: only superadmins can change it
+    if is_superadmin(admin_user) and "group_id" in update_data:
+        target_group_id = update_data["group_id"]
+    else:
+        target_group_id = existing["group_id"]
 
-    print(target_thresholds)
-    print(type(target_thresholds))
+    target_name = update_data.get("name", existing["name"])
+    target_thresholds = update_data.get("thresholds", existing["thresholds"])
+    
+    # Special handling for model_id to allow setting it to null (None)
+    if "model_id" in update_data:
+        target_model_id = update_data["model_id"]
+    else:
+        # Retain existing UUID object as string for consistency if needed, 
+        # but update_branch_db handles UUID objects too.
+        target_model_id = str(existing["model_id"]) if existing.get("model_id") else None
 
     row = await update_branch_db(
         branch_id=branch_id,
