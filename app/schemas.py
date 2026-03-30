@@ -240,3 +240,20 @@ class ModelUpdateRequest(BaseModel):
 class ModelListResponse(BaseModel):
     count: int
     items: list[ModelResponse]
+
+
+class LogResponse(BaseModel):
+    log_id: int
+    user_id: int | None = None
+    username: str | None = None
+    group_id: int | None = None
+    action: str
+    target_type: str | None = None
+    target_id: str | None = None
+    details: dict | None = None
+    created_at: datetime
+
+
+class LogListResponse(BaseModel):
+    count: int
+    items: list[LogResponse]

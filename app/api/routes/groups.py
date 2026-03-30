@@ -3,6 +3,7 @@ from app.schemas import GroupCreateRequest, ResponseMessage
 from app.security import get_current_user_record, is_superadmin, require_admin
 from app.services.database import (
 	create_group as create_group_db,
+	create_log,
 	delete_group as delete_group_db,
 	get_group as get_group_db,
 	get_groups as get_groups_db,
@@ -53,6 +54,15 @@ async def create_group(group: GroupCreateRequest, admin_user: dict = Depends(req
 	if not row:
 		raise HTTPException(status_code=400, detail="Cannot create group")
 
+	await create_log(
+		user_id=admin_user["user_id"],
+		action="CREATE_GROUP",
+		group_id=None,  # Group creation is a global action
+		target_type="group",
+		target_id=str(row["group_id"]),
+		details={"name": group.name}
+	)
+
 	return ResponseMessage(
 		code=200,
 		message="Group created successfully",
@@ -73,6 +83,15 @@ async def update_group(
 	if not row:
 		raise HTTPException(status_code=404, detail="Group not found")
 
+	await create_log(
+		user_id=admin_user["user_id"],
+		action="UPDATE_GROUP",
+		group_id=group_id,
+		target_type="group",
+		target_id=str(group_id),
+		details={"name": group.name}
+	)
+
 	return ResponseMessage(
 		code=200,
 		message="Group updated successfully",
@@ -88,6 +107,14 @@ async def delete_group(group_id: int, admin_user: dict = Depends(require_admin))
 	deleted = await delete_group_db(group_id)
 	if not deleted:
 		raise HTTPException(status_code=404, detail="Group not found")
+
+	await create_log(
+		user_id=admin_user["user_id"],
+		action="DELETE_GROUP",
+		group_id=group_id,
+		target_type="group",
+		target_id=str(group_id)
+	)
 
 	return ResponseMessage(
 		code=200,

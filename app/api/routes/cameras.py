@@ -12,6 +12,7 @@ from app.core import config
 from app.services.database import (
     add_camera as create_camera_db,
     create_camera_access_request as create_camera_access_request_db,
+    create_log,
     delete_camera as delete_camera_db,
     get_branch,
     get_camera as get_camera_db,
@@ -223,6 +224,15 @@ async def add_camera(camera: CameraCreateRequest, admin_user: dict = Depends(req
     if not row:
         raise HTTPException(status_code=400, detail="Cannot create camera")
 
+    await create_log(
+        user_id=admin_user["user_id"],
+        action="CREATE_CAMERA",
+        group_id=admin_user.get("group_id"),
+        target_type="camera",
+        target_id=row.get("camera_id"),
+        details={"name": camera.name, "branch_id": camera.branch_id}
+    )
+
     return ResponseMessage(
         code=200,
         message="Camera created successfully",
@@ -269,6 +279,15 @@ async def update_camera(
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot update camera")
+
+    await create_log(
+        user_id=admin_user["user_id"],
+        action="UPDATE_CAMERA",
+        group_id=admin_user.get("group_id"),
+        target_type="camera",
+        target_id=camera_id,
+        details={"name": camera.name, "branch_id": camera.branch_id}
+    )
 
     return ResponseMessage(
         code=200,
@@ -400,6 +419,15 @@ async def delete_camera(camera_id: str, admin_user: dict = Depends(require_admin
     deleted = await delete_camera_db(camera_id=camera_id)
     if not deleted:
         raise HTTPException(status_code=400, detail="Cannot delete camera")
+
+    await create_log(
+        user_id=admin_user["user_id"],
+        action="DELETE_CAMERA",
+        group_id=admin_user.get("group_id"),
+        target_type="camera",
+        target_id=camera_id,
+        details={"name": existing_camera.get("name")}
+    )
 
     return ResponseMessage(
         code=200,

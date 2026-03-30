@@ -6,6 +6,7 @@ from app.core import config
 from app.security import clear_user_session, create_user_session, get_current_user_record, verify_login
 from app.services.database import (
     authenticate_user,
+    create_log,
     create_user as create_user_db,
     create_user_session as create_user_session_db,
     get_active_user_session,
@@ -62,6 +63,13 @@ async def login(payload: LoginRequest, request: Request, response: Response):
         httponly=True,
         samesite="lax",
         secure=False,
+    )
+
+    await create_log(
+        user_id=user["user_id"],
+        action="LOGIN",
+        group_id=user.get("group_id"),
+        details={"username": payload.username, "ip": request.client.host if request.client else None}
     )
 
     return ResponseMessage(
@@ -159,6 +167,12 @@ async def change_password(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update password",
         )
+
+    await create_log(
+        user_id=current_user["user_id"],
+        action="CHANGE_PASSWORD",
+        group_id=current_user.get("group_id"),
+    )
 
     return ResponseMessage(
         code=200,

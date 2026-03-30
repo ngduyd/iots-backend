@@ -12,6 +12,7 @@ from app.schemas import (
 from app.security import get_current_user_record, is_superadmin
 from app.services.database import (
     create_job_db,
+    create_log,
     get_job_db,
     update_job_status_db,
     cancel_job_db,
@@ -81,6 +82,15 @@ async def create_job(
 
     if not job:
         raise HTTPException(status_code=500, detail="Failed to create job in database")
+
+    await create_log(
+        user_id=current_user["user_id"],
+        action="CREATE_JOB",
+        group_id=current_user.get("group_id"),
+        target_type="job",
+        target_id=job_id,
+        details={"branch_id": request.dataset.branch_id, "status": status}
+    )
 
     msg = "Job created successfully" if data_ok else f"Job created with failure: {reason}"
     return ResponseMessage(

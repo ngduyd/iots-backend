@@ -413,6 +413,30 @@ async def init_db():
                     EXECUTE FUNCTION sync_sensor_status_from_value();
                     """
                 )
+                await connection.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS logs (
+                        log_id SERIAL PRIMARY KEY,
+                        user_id INT REFERENCES users(user_id) ON DELETE SET NULL,
+                        group_id INT REFERENCES groups(group_id) ON DELETE CASCADE,
+                        action VARCHAR(50) NOT NULL,
+                        target_type VARCHAR(50),
+                        target_id VARCHAR(128),
+                        details JSONB,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_logs_group_id ON logs(group_id);
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs(created_at DESC);
+                    """
+                )
     except Exception as e:
         print(f"Error initializing the database: {e}")
 
@@ -798,6 +822,71 @@ async def get_latest_people_count_by_branch(branch_id: int):
         return []
 
 async def get_sensor_name(sensor_id):
+    try:
+        row = await _fetchrow("SELECT name FROM sensors WHERE sensor_id = $1 AND deleted_at IS NULL;", sensor_id)
+        return row["name"] if row else sensor_id
+    except Exception as e:
+        print(f"Error getting sensor name: {e}")
+        return sensor_id
+
+async def create_log(user_id, action, group_id=None, target_type=None, target_id=None, details=None):
+    try:
+        query = """
+            INSERT INTO logs (user_id, group_id, action, target_type, target_id, details)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+            RETURNING log_id;
+        """
+        return await _fetchrow(query, user_id, group_id, action, target_type, target_id, json.dumps(details) if details else None)
+    except Exception as e:
+        print(f"Error creating log: {e}")
+        return None
+
+async def get_logs(limit=100, offset=0, group_id=None, action=None, target_type=None, from_date=None, to_date=None):
+    try:
+        where_clauses = []
+        params = []
+        
+        if group_id is not None:
+            params.append(group_id)
+            where_clauses.append(f"group_id = ${len(params)}")
+            
+        if action:
+            params.append(action)
+            where_clauses.append(f"action = ${len(params)}")
+            
+        if target_type:
+            params.append(target_type)
+            where_clauses.append(f"target_type = ${len(params)}")
+            
+        if from_date:
+            params.append(from_date)
+            where_clauses.append(f"created_at >= ${len(params)}")
+            
+        if to_date:
+            params.append(to_date)
+            where_clauses.append(f"created_at <= ${len(params)}")
+            
+        where_str = ""
+        if where_clauses:
+            where_str = "WHERE " + " AND ".join(where_clauses)
+            
+        params.append(limit)
+        limit_idx = len(params)
+        params.append(offset)
+        offset_idx = len(params)
+        
+        query = f"""
+            SELECT l.*, u.username
+            FROM logs l
+            LEFT JOIN users u ON l.user_id = u.user_id
+            {where_str}
+            ORDER BY l.created_at DESC
+            LIMIT ${limit_idx} OFFSET ${offset_idx};
+        """
+        return await _fetch(query, *params)
+    except Exception as e:
+        print(f"Error getting logs: {e}")
+        return []
     try:
         row = await _fetchrow(
             """

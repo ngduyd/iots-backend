@@ -2,7 +2,16 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.schemas import SensorCreateRequest, SensorListResponse, SensorStatus, SensorValue, SensorValueListResponse, ResponseMessage
 from app.security import get_current_user_record, is_superadmin, require_admin
-from app.services.database import add_sensor as create_sensor, get_branch, get_sensor, get_sensor_name, get_sensor_values, get_sensors, update_sensor as update_sensor_db
+from app.services.database import (
+    add_sensor as create_sensor,
+    create_log,
+    get_branch,
+    get_sensor,
+    get_sensor_name,
+    get_sensor_values,
+    get_sensors,
+    update_sensor as update_sensor_db
+)
 
 router = APIRouter(prefix="/api/sensors", tags=["sensors"])
 
@@ -119,6 +128,15 @@ async def add_sensor(sensor: SensorCreateRequest, admin_user: dict = Depends(req
     if not row:
         raise HTTPException(status_code=400, detail="Cannot create sensor")
 
+    await create_log(
+        user_id=admin_user["user_id"],
+        action="CREATE_SENSOR",
+        group_id=admin_user.get("group_id"),
+        target_type="sensor",
+        target_id=row.get("sensor_id"),
+        details={"name": row.get("name"), "branch_id": row.get("branch_id")}
+    )
+
     return ResponseMessage(
         code=200,
         message="Sensor created successfully",
@@ -158,6 +176,15 @@ async def update_sensor(sensor_id: str, sensor: SensorCreateRequest, admin_user:
     if not row:
         raise HTTPException(status_code=400, detail="Cannot update sensor")
 
+    await create_log(
+        user_id=admin_user["user_id"],
+        action="UPDATE_SENSOR",
+        group_id=admin_user.get("group_id"),
+        target_type="sensor",
+        target_id=sensor_id,
+        details={"name": row.get("name"), "branch_id": row.get("branch_id")}
+    )
+
     return ResponseMessage(
         code=200,
         message="Sensor updated successfully",
@@ -190,6 +217,15 @@ async def delete_sensor(sensor_id: str, admin_user: dict = Depends(require_admin
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot delete sensor")
+
+    await create_log(
+        user_id=admin_user["user_id"],
+        action="DELETE_SENSOR",
+        group_id=admin_user.get("group_id"),
+        target_type="sensor",
+        target_id=sensor_id,
+        details={"name": existing_sensor.get("name")}
+    )
 
     return ResponseMessage(
         code=200,

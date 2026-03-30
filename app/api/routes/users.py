@@ -3,6 +3,7 @@ from app.schemas import ResponseMessage, UserCreateByAdminRequest, UserUpdateReq
 from app.security import get_current_user_record, is_superadmin, require_admin
 from app.services.database import (
     create_user as create_user_db,
+    create_log,
     delete_user as delete_user_db,
     get_user as get_user_db,
     get_user_by_username as get_user_by_username_db,
@@ -86,6 +87,16 @@ async def create_user(
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot create user")
+    
+    await create_log(
+        user_id=admin_user["user_id"],
+        action="CREATE_USER",
+        group_id=group_id,
+        target_type="user",
+        target_id=str(row["user_id"]),
+        details={"username": user.username, "role": user.role}
+    )
+
     return ResponseMessage(
         code=200,
         message="User created successfully",
@@ -138,6 +149,15 @@ async def update_user(
     if not row:
         raise HTTPException(status_code=400, detail="Update failed")
 
+    await create_log(
+        user_id=current_user["user_id"],
+        action="UPDATE_USER",
+        group_id=target_group_id,
+        target_type="user",
+        target_id=str(user_id),
+        details={"username": row["username"], "role": target_role}
+    )
+
     return ResponseMessage(
         code=200,
         message="User updated successfully",
@@ -163,6 +183,16 @@ async def delete_user(user_id: int, admin_user: dict = Depends(require_admin)):
     deleted = await delete_user_db(user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="User not found")
+
+    await create_log(
+        user_id=admin_user["user_id"],
+        action="DELETE_USER",
+        group_id=existing.get("group_id"),
+        target_type="user",
+        target_id=str(user_id),
+        details={"username": existing.get("username")}
+    )
+
     return ResponseMessage(
         code=200,
         message="User deleted successfully",

@@ -10,6 +10,7 @@ from app.api.routes.notifications import router as notifications_router
 from app.api.routes.users import current_user_router, router as users_router
 from app.api.routes.jobs import router as jobs_router
 from app.api.routes.models import router as models_router
+from app.api.routes.logs import router as logs_router
 from app.core import config
 from app.runtime import runtime
 from app.services.database import close_db, ensure_default_admin_user, init_db, reset_all_cameras_offline
@@ -63,3 +64,4 @@ app.include_router(current_user_router)
 app.include_router(users_router)
 app.include_router(jobs_router)
 app.include_router(models_router)
+app.include_router(logs_router)

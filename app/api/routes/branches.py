@@ -21,6 +21,7 @@ from app.security import get_current_user_record, is_superadmin, require_admin
 from app.runtime import runtime
 from app.services.database import (
     create_branch as create_branch_db,
+    create_log,
     delete_branch as delete_branch_db,
     get_branch as get_branch_db,
     get_branch_data_for_export,
@@ -164,6 +165,16 @@ async def create_branch(
     )
     if not row:
         raise HTTPException(status_code=400, detail="Cannot create branch")
+    
+    await create_log(
+        user_id=admin_user["user_id"],
+        action="CREATE_BRANCH",
+        group_id=group_id,
+        target_type="branch",
+        target_id=str(row["branch_id"]),
+        details={"name": branch.name}
+    )
+
     return ResponseMessage(
         code=200,
         message="Branch created successfully",
@@ -220,6 +231,20 @@ async def update_branch(
     # Sync with MQTT Runtime cache
     runtime.update_threshold_cache(branch_id, target_thresholds)
 
+    # Logging
+    action = "UPDATE_BRANCH"
+    if "thresholds" in update_data:
+        action = "UPDATE_THRESHOLDS"
+    
+    await create_log(
+        user_id=admin_user["user_id"],
+        action=action,
+        group_id=target_group_id,
+        target_type="branch",
+        target_id=str(branch_id),
+        details={"name": target_name, "thresholds_changed": "thresholds" in update_data}
+    )
+
     return ResponseMessage(
         code=200,
         message="Branch updated successfully",
@@ -242,6 +267,16 @@ async def delete_branch(branch_id: int, admin_user: dict = Depends(require_admin
     deleted = await delete_branch_db(branch_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Branch not found")
+
+    await create_log(
+        user_id=admin_user["user_id"],
+        action="DELETE_BRANCH",
+        group_id=existing.get("group_id"),
+        target_type="branch",
+        target_id=str(branch_id),
+        details={"name": existing.get("name")}
+    )
+
     return ResponseMessage(
         code=200,
         message="Branch deleted successfully",
