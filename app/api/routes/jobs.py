@@ -46,10 +46,9 @@ async def create_job(
     job_id = str(uuid.uuid4())
     secret = secrets.token_urlsafe(32)
 
-    
-
-    # Validation: data range must be at least 7 days
-    date_diff = request.dataset.date_to - request.dataset.date_from
+    d_to = request.dataset.date_to.replace(tzinfo=None)
+    d_from = request.dataset.date_from.replace(tzinfo=None)
+    date_diff = d_to - d_from
     
     if date_diff.days < 7:
         data_ok = False
