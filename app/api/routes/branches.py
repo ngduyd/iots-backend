@@ -172,7 +172,7 @@ async def create_branch(
         group_id=group_id,
         target_type="branch",
         target_id=str(row["branch_id"]),
-        details={"name": branch.name}
+        message=f"Admin '{admin_user['username']}' created branch '{branch.name}'"
     )
 
     return ResponseMessage(
@@ -242,7 +242,7 @@ async def update_branch(
         group_id=target_group_id,
         target_type="branch",
         target_id=str(branch_id),
-        details={"name": target_name, "thresholds_changed": "thresholds" in update_data}
+        message=f"Admin '{admin_user['username']}' updated branch '{target_name}' (Action: {action})"
     )
 
     return ResponseMessage(
@@ -274,7 +274,7 @@ async def delete_branch(branch_id: int, admin_user: dict = Depends(require_admin
         group_id=existing.get("group_id"),
         target_type="branch",
         target_id=str(branch_id),
-        details={"name": existing.get("name")}
+        message=f"Admin '{admin_user['username']}' deleted branch '{existing.get('name')}'"
     )
 
     return ResponseMessage(

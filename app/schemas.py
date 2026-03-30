@@ -250,10 +250,10 @@ class LogResponse(BaseModel):
     action: str
     target_type: str | None = None
     target_id: str | None = None
-    details: dict | None = None
+    message: str | None = None
     created_at: datetime
 
 
 class LogListResponse(BaseModel):
     count: int
-    items: list[LogResponse]
+    items: list[str]

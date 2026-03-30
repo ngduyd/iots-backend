@@ -69,7 +69,7 @@ async def login(payload: LoginRequest, request: Request, response: Response):
         user_id=user["user_id"],
         action="LOGIN",
         group_id=user.get("group_id"),
-        details={"username": payload.username, "ip": request.client.host if request.client else None}
+        message=f"User '{payload.username}' logged in"
     )
 
     return ResponseMessage(
@@ -172,6 +172,7 @@ async def change_password(
         user_id=current_user["user_id"],
         action="CHANGE_PASSWORD",
         group_id=current_user.get("group_id"),
+        message=f"User '{current_user['username']}' changed their password"
     )
 
     return ResponseMessage(

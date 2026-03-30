@@ -230,7 +230,7 @@ async def add_camera(camera: CameraCreateRequest, admin_user: dict = Depends(req
         group_id=admin_user.get("group_id"),
         target_type="camera",
         target_id=row.get("camera_id"),
-        details={"name": camera.name, "branch_id": camera.branch_id}
+        message=f"Admin '{admin_user['username']}' added camera '{camera.name}' to branch ID {camera.branch_id}"
     )
 
     return ResponseMessage(
@@ -286,7 +286,7 @@ async def update_camera(
         group_id=admin_user.get("group_id"),
         target_type="camera",
         target_id=camera_id,
-        details={"name": camera.name, "branch_id": camera.branch_id}
+        message=f"Admin '{admin_user['username']}' updated camera '{camera.name}'"
     )
 
     return ResponseMessage(
@@ -426,7 +426,7 @@ async def delete_camera(camera_id: str, admin_user: dict = Depends(require_admin
         group_id=admin_user.get("group_id"),
         target_type="camera",
         target_id=camera_id,
-        details={"name": existing_camera.get("name")}
+        message=f"Admin '{admin_user['username']}' deleted camera '{existing_camera.get('name')}'"
     )
 
     return ResponseMessage(

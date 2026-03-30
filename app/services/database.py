@@ -422,9 +422,20 @@ async def init_db():
                         action VARCHAR(50) NOT NULL,
                         target_type VARCHAR(50),
                         target_id VARCHAR(128),
-                        details JSONB,
+                        message TEXT,
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );
+                    """
+                )
+                await connection.execute(
+                    """
+                    DO $$
+                    BEGIN
+                        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='logs' AND column_name='details') THEN
+                            ALTER TABLE logs RENAME COLUMN details TO message;
+                            ALTER TABLE logs ALTER COLUMN message TYPE TEXT USING message::text;
+                        END IF;
+                    END $$;
                     """
                 )
                 await connection.execute(
@@ -829,14 +840,14 @@ async def get_sensor_name(sensor_id):
         print(f"Error getting sensor name: {e}")
         return sensor_id
 
-async def create_log(user_id, action, group_id=None, target_type=None, target_id=None, details=None):
+async def create_log(user_id, action, group_id=None, target_type=None, target_id=None, message=None):
     try:
         query = """
-            INSERT INTO logs (user_id, group_id, action, target_type, target_id, details)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+            INSERT INTO logs (user_id, group_id, action, target_type, target_id, message)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING log_id;
         """
-        return await _fetchrow(query, user_id, group_id, action, target_type, target_id, json.dumps(details) if details else None)
+        return await _fetchrow(query, user_id, group_id, action, target_type, target_id, message)
     except Exception as e:
         print(f"Error creating log: {e}")
         return None

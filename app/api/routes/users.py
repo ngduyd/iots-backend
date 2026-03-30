@@ -94,7 +94,7 @@ async def create_user(
         group_id=group_id,
         target_type="user",
         target_id=str(row["user_id"]),
-        details={"username": user.username, "role": user.role}
+        message=f"Admin '{admin_user['username']}' created user '{user.username}' with role '{user.role}'"
     )
 
     return ResponseMessage(
@@ -155,7 +155,7 @@ async def update_user(
         group_id=target_group_id,
         target_type="user",
         target_id=str(user_id),
-        details={"username": row["username"], "role": target_role}
+        message=f"User '{current_user['username']}' updated user '{row['username']}'"
     )
 
     return ResponseMessage(
@@ -190,7 +190,7 @@ async def delete_user(user_id: int, admin_user: dict = Depends(require_admin)):
         group_id=existing.get("group_id"),
         target_type="user",
         target_id=str(user_id),
-        details={"username": existing.get("username")}
+        message=f"Admin '{admin_user['username']}' deleted user '{existing.get('username')}'"
     )
 
     return ResponseMessage(

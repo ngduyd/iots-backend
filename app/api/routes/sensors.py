@@ -134,7 +134,7 @@ async def add_sensor(sensor: SensorCreateRequest, admin_user: dict = Depends(req
         group_id=admin_user.get("group_id"),
         target_type="sensor",
         target_id=row.get("sensor_id"),
-        details={"name": row.get("name"), "branch_id": row.get("branch_id")}
+        message=f"Admin '{admin_user['username']}' added sensor '{row.get('name')}' to branch ID {row.get('branch_id')}"
     )
 
     return ResponseMessage(
@@ -182,7 +182,7 @@ async def update_sensor(sensor_id: str, sensor: SensorCreateRequest, admin_user:
         group_id=admin_user.get("group_id"),
         target_type="sensor",
         target_id=sensor_id,
-        details={"name": row.get("name"), "branch_id": row.get("branch_id")}
+        message=f"Admin '{admin_user['username']}' updated sensor '{row.get('name')}'"
     )
 
     return ResponseMessage(
@@ -224,7 +224,7 @@ async def delete_sensor(sensor_id: str, admin_user: dict = Depends(require_admin
         group_id=admin_user.get("group_id"),
         target_type="sensor",
         target_id=sensor_id,
-        details={"name": existing_sensor.get("name")}
+        message=f"Admin '{admin_user['username']}' deleted sensor '{existing_sensor.get('name')}'"
     )
 
     return ResponseMessage(

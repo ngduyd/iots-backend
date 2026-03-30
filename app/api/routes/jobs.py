@@ -89,7 +89,7 @@ async def create_job(
         group_id=current_user.get("group_id"),
         target_type="job",
         target_id=job_id,
-        details={"branch_id": request.dataset.branch_id, "status": status}
+        message=f"User '{current_user['username']}' created job '{job_id}' for branch ID {request.dataset.branch_id}"
     )
 
     msg = "Job created successfully" if data_ok else f"Job created with failure: {reason}"

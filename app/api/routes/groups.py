@@ -57,10 +57,10 @@ async def create_group(group: GroupCreateRequest, admin_user: dict = Depends(req
 	await create_log(
 		user_id=admin_user["user_id"],
 		action="CREATE_GROUP",
-		group_id=None,  # Group creation is a global action
+		group_id=None,
 		target_type="group",
 		target_id=str(row["group_id"]),
-		details={"name": group.name}
+		message=f"Superadmin '{admin_user['username']}' created group '{group.name}'"
 	)
 
 	return ResponseMessage(
@@ -89,7 +89,7 @@ async def update_group(
 		group_id=group_id,
 		target_type="group",
 		target_id=str(group_id),
-		details={"name": group.name}
+		message=f"Admin '{admin_user['username']}' updated group '{group.name}'"
 	)
 
 	return ResponseMessage(
@@ -113,7 +113,8 @@ async def delete_group(group_id: int, admin_user: dict = Depends(require_admin))
 		action="DELETE_GROUP",
 		group_id=group_id,
 		target_type="group",
-		target_id=str(group_id)
+		target_id=str(group_id),
+		message=f"Superadmin '{admin_user['username']}' deleted group ID {group_id}"
 	)
 
 	return ResponseMessage(

@@ -36,7 +36,10 @@ async def list_logs(
         to_date=to_date
     )
     
-    items = [LogResponse(**row) for row in rows]
+    items = [
+        f"{row['action']} | {row['message']} | {row['created_at'].isoformat()}"
+        for row in rows
+    ]
     
     return ResponseMessage(
         code=200,
