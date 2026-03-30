@@ -1470,45 +1470,44 @@ async def create_user(username, password, group_id=None, role="user"):
 
 async def ensure_default_admin_user():
     try:
-        existing_superadmin = await get_user_by_username("superadmin")
-        if existing_superadmin is not None and existing_superadmin.get("role") != "superadmin":
-            existing_superadmin = await _fetchrow(
-                """
-                UPDATE users
-                SET role = 'superadmin'
-                WHERE user_id = $1
-                RETURNING user_id, group_id, username, role, created_at;
-                """,
-                existing_superadmin["user_id"],
-            )
+        # 1. Ensure Superadmin
+        superadmin_username = config.SUPERADMIN_USERNAME
+        existing_superadmin = await get_user_by_username(superadmin_username)
 
         if existing_superadmin is None:
             existing_superadmin = await create_user(
-                username="superadmin",
-                password="superadmin123",
+                username=superadmin_username,
+                password=config.SUPERADMIN_PASSWORD,
                 role="superadmin",
             )
+            if existing_superadmin:
+                print(f"[STARTUP] Created default superadmin: {superadmin_username}")
+        else:
+            if existing_superadmin.get("role") != "superadmin":
+                await _execute(
+                    "UPDATE users SET role = 'superadmin' WHERE user_id = $1",
+                    existing_superadmin["user_id"]
+                )
+                existing_superadmin["role"] = "superadmin"
+            print(f"[STARTUP] Superadmin '{superadmin_username}' is ready")
 
+        # 2. Ensure Default Admin
         existing_admin = await get_user_by_username("admin")
         if existing_admin is None:
-            existing_admin = await create_user(
+            await create_user(
                 username="admin",
                 password="admin123",
                 role="admin",
             )
+            print("[STARTUP] Created default admin: admin")
         elif existing_admin.get("role") != "admin":
-            existing_admin = await _fetchrow(
-                """
-                UPDATE users
-                SET role = 'admin'
-                WHERE user_id = $1
-                RETURNING user_id, group_id, username, role, created_at;
-                """,
-                existing_admin["user_id"],
+            await _execute(
+                "UPDATE users SET role = 'admin' WHERE user_id = $1",
+                existing_admin["user_id"]
             )
+            print("[STARTUP] Fixed role for user 'admin' to 'admin'")
 
-        if existing_superadmin is not None:
-            return existing_superadmin
+        return existing_superadmin
 
         return await _fetchrow(
             """

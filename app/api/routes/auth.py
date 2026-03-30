@@ -21,16 +21,12 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/login", response_model=ResponseMessage)
 async def login(payload: LoginRequest, request: Request, response: Response):
-    user = await authenticate_user(payload.username, payload.password)
-
-    if user is None and verify_login(payload.username, payload.password):
+    # Check for superadmin (from env) first
+    if verify_login(payload.username, payload.password):
         user = await get_user_by_username(payload.username)
-        if user is None:
-            user = await create_user_db(
-                username=payload.username,
-                password=payload.password,
-                role="superadmin",
-            )
+    else:
+        # Check standard user (from DB)
+        user = await authenticate_user(payload.username, payload.password)
 
     if user is None:
         raise HTTPException(

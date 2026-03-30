@@ -5,8 +5,8 @@ from app.services.database import get_active_user_session, get_user
 
 
 def verify_login(username: str, password: str) -> bool:
-    user_ok = hmac.compare_digest(username, config.AUTH_USERNAME)
-    pass_ok = hmac.compare_digest(password, config.AUTH_PASSWORD)
+    user_ok = hmac.compare_digest(username, config.SUPERADMIN_USERNAME)
+    pass_ok = hmac.compare_digest(password, config.SUPERADMIN_PASSWORD)
     return user_ok and pass_ok
 
 

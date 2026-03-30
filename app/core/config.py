@@ -20,8 +20,8 @@ DB_READ_STATEMENT_TIMEOUT_MS = int(os.environ.get("DB_READ_STATEMENT_TIMEOUT_MS"
 HTTP_HOST = os.environ.get("HTTP_HOST", "0.0.0.0")
 HTTP_PORT = int(os.environ.get("HTTP_PORT", 8000))
 
-AUTH_USERNAME = os.environ.get("AUTH_USERNAME", "admin")
-AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "admin123")
+SUPERADMIN_USERNAME = os.environ.get("SUPERADMIN_USERNAME", "superadmin")
+SUPERADMIN_PASSWORD = os.environ.get("SUPERADMIN_PASSWORD", "superadmin123")
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "change-me-in-production")
 SESSION_MAX_AGE_SECONDS = int(os.environ.get("SESSION_MAX_AGE_SECONDS", 3600))
 CAMERA_ACCESS_TOKEN_TTL_SECONDS = int(os.environ.get("CAMERA_ACCESS_TOKEN_TTL_SECONDS", 60))
