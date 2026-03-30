@@ -848,23 +848,23 @@ async def get_logs(limit=100, offset=0, group_id=None, action=None, target_type=
         
         if group_id is not None:
             params.append(group_id)
-            where_clauses.append(f"group_id = ${len(params)}")
+            where_clauses.append(f"l.group_id = ${len(params)}")
             
         if action:
             params.append(action)
-            where_clauses.append(f"action = ${len(params)}")
+            where_clauses.append(f"l.action = ${len(params)}")
             
         if target_type:
             params.append(target_type)
-            where_clauses.append(f"target_type = ${len(params)}")
+            where_clauses.append(f"l.target_type = ${len(params)}")
             
         if from_date:
             params.append(from_date)
-            where_clauses.append(f"created_at >= ${len(params)}")
+            where_clauses.append(f"l.created_at >= ${len(params)}")
             
         if to_date:
             params.append(to_date)
-            where_clauses.append(f"created_at <= ${len(params)}")
+            where_clauses.append(f"l.created_at <= ${len(params)}")
             
         where_str = ""
         if where_clauses:
