@@ -46,12 +46,21 @@ async def create_job(
     job_id = str(uuid.uuid4())
     secret = secrets.token_urlsafe(32)
 
-    data_ok, reason = await verify_job_data_exists(
-        request.dataset.branch_id,
-        request.dataset.features,
-        request.dataset.date_from,
-        request.dataset.date_to
-    )
+    
+
+    # Validation: data range must be at least 7 days
+    date_diff = request.dataset.date_to - request.dataset.date_from
+    
+    if date_diff.days < 7:
+        data_ok = False
+        reason = "Training data range must be at least 7 days."
+    else:
+        data_ok, reason = await verify_job_data_exists(
+            request.dataset.branch_id,
+            request.dataset.features,
+            request.dataset.date_from,
+            request.dataset.date_to
+        )
 
     status = "pending" if data_ok else "failed"
     message = None if data_ok else reason
