@@ -1909,7 +1909,7 @@ async def get_or_create_model(group_id: int, model_id: str, name: str):
             INSERT INTO models (model_id, group_id, name)
             VALUES ($1, $2, $3)
             ON CONFLICT (model_id) DO UPDATE SET name = EXCLUDED.name
-            RETURNING model_id, name;
+            RETURNING model_id, group_id, name, created_at;
             """,
             uuid.UUID(model_id) if isinstance(model_id, str) else model_id,
             group_id,
@@ -1925,7 +1925,7 @@ async def get_models_db(group_id: int):
     try:
         return await _fetch(
             """
-            SELECT model_id, name, created_at 
+            SELECT model_id, group_id, name, created_at 
             FROM models 
             WHERE group_id = $1 
             ORDER BY created_at DESC;
@@ -1940,7 +1940,7 @@ async def get_models_db(group_id: int):
 async def update_model_name_db(model_id: str, name: str, group_id: int):
     try:
         return await _fetchrow(
-            "UPDATE models SET name = $1 WHERE model_id = $2 AND group_id = $3 RETURNING model_id, name;",
+            "UPDATE models SET name = $1 WHERE model_id = $2 AND group_id = $3 RETURNING model_id, group_id, name, created_at;",
             name,
             uuid.UUID(model_id) if isinstance(model_id, str) else model_id,
             group_id
