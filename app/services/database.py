@@ -1159,7 +1159,7 @@ async def reset_camera_secret(camera_id):
             UPDATE cameras
             SET secret = $1
             WHERE camera_id = $2
-            RETURNING camera_id, branch_id, name, secret, active, created_at;
+            RETURNING camera_id, branch_id, name, secret, activate, created_at;
             """,
             new_secret,
             camera_id,
