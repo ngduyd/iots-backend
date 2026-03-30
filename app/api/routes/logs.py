@@ -37,7 +37,7 @@ async def list_logs(
     )
     
     items = [
-        f"{row['action']} | {row['message']} | {row['created_at'].isoformat()}"
+        f"{row['created_at'].isoformat()} | {row['action']} | {row['message']}"
         for row in rows
     ]
     
