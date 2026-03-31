@@ -135,6 +135,17 @@ async def init_db():
                 )
                 await connection.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS models (
+                        model_id UUID PRIMARY KEY,
+                        group_id INT REFERENCES groups(group_id) ON DELETE CASCADE,
+                        name VARCHAR(255) NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        deleted_at TIMESTAMPTZ
+                    );
+                    """
+                )
+                await connection.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS branches (
                         branch_id SERIAL PRIMARY KEY,
                         group_id INT REFERENCES groups(group_id),
@@ -381,17 +392,6 @@ async def init_db():
                 await connection.execute(
                     """
                     DROP TRIGGER IF EXISTS trg_sync_sensor_status_from_value ON values;
-                    """
-                )
-                await connection.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS models (
-                        model_id UUID PRIMARY KEY,
-                        group_id INT REFERENCES groups(group_id) ON DELETE CASCADE,
-                        name VARCHAR(255) NOT NULL,
-                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                        deleted_at TIMESTAMPTZ
-                    );
                     """
                 )
                 await connection.execute(

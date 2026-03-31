@@ -9,7 +9,6 @@ from fastapi.responses import StreamingResponse
 from app.core import config
 from app.schemas import (
     BranchCreateByAdminRequest,
-    BranchCreateRequest,
     BranchUpdateRequest,
     CameraListResponse,
     CameraResponse,
