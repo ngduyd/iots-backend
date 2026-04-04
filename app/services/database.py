@@ -129,8 +129,15 @@ async def init_db():
                     CREATE TABLE IF NOT EXISTS groups (
                         group_id SERIAL PRIMARY KEY,
                         name VARCHAR(100) NOT NULL,
-                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        deleted_at TIMESTAMPTZ
                     );
+                    """
+                )
+                await connection.execute(
+                    """
+                    ALTER TABLE groups
+                    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
                     """
                 )
                 await connection.execute(
@@ -278,7 +285,8 @@ async def init_db():
                         name VARCHAR(50),
                         secret VARCHAR(64),
                         activate BOOLEAN NOT NULL DEFAULT FALSE,
-                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        deleted_at TIMESTAMPTZ
                     );
                     """
                 )
@@ -298,6 +306,12 @@ async def init_db():
                     """
                     ALTER TABLE cameras
                     ADD COLUMN IF NOT EXISTS status VARCHAR(100) DEFAULT 'offline' NOT NULL;
+                    """
+                )
+                await connection.execute(
+                    """
+                    ALTER TABLE cameras
+                    ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
                     """
                 )
                 await connection.execute(
@@ -353,6 +367,20 @@ async def init_db():
                     """
                     CREATE INDEX IF NOT EXISTS idx_sensors_active_updated
                     ON sensors(updated_at)
+                    WHERE deleted_at IS NULL;
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_groups_active
+                    ON groups(group_id)
+                    WHERE deleted_at IS NULL;
+                    """
+                )
+                await connection.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_cameras_active_branch_created
+                    ON cameras(branch_id, created_at DESC)
                     WHERE deleted_at IS NULL;
                     """
                 )
@@ -530,7 +558,7 @@ async def update_sensor_status(sensor_id, status):
 async def update_camera_status(camera_id, status):
     try:
         await _execute(
-            "UPDATE cameras SET status = $1 WHERE camera_id = $2;",
+            "UPDATE cameras SET status = $1 WHERE camera_id = $2 AND deleted_at IS NULL;",
             status,
             camera_id,
         )
@@ -555,7 +583,9 @@ async def get_sensors(limit=100, group_id=None):
                 SELECT s.sensor_id, s.name, s.status, s.updated_at
                 FROM sensors s
                 JOIN branches b ON b.branch_id = s.branch_id
+                                JOIN groups g ON g.group_id = b.group_id
                 WHERE b.group_id = $1
+                                    AND g.deleted_at IS NULL
                   AND s.deleted_at IS NULL
                 ORDER BY s.updated_at DESC
                 LIMIT $2;
@@ -587,7 +617,8 @@ async def get_sensor(sensor_id, group_id=None):
                 SELECT s.sensor_id, s.name, s.branch_id, s.status, s.updated_at
                 FROM sensors s
                 JOIN branches b ON b.branch_id = s.branch_id
-                WHERE s.sensor_id = $1 AND b.group_id = $2 AND s.deleted_at IS NULL;
+                JOIN groups g ON g.group_id = b.group_id
+                WHERE s.sensor_id = $1 AND b.group_id = $2 AND g.deleted_at IS NULL AND s.deleted_at IS NULL;
                 """,
                 sensor_id,
                 group_id,
@@ -630,7 +661,7 @@ async def get_cameras_by_branch(branch_id, limit=100):
             """
             SELECT camera_id, branch_id, name, secret, created_at, status
             FROM cameras
-            WHERE branch_id = $1
+            WHERE branch_id = $1 AND deleted_at IS NULL
             ORDER BY created_at DESC
             LIMIT $2;
             """,
@@ -648,7 +679,7 @@ async def get_camera_by_branch(branch_id):
             """
             SELECT camera_id, branch_id, name, status, created_at
             FROM cameras
-            WHERE branch_id = $1
+            WHERE branch_id = $1 AND deleted_at IS NULL
             LIMIT 1;
             """,
             branch_id,
@@ -682,8 +713,10 @@ async def get_sensor_values(sensor_id, limit=1000000, group_id=None, from_time: 
                 FROM values v
                 JOIN sensors s ON s.sensor_id = v.sensor_id
                 JOIN branches b ON b.branch_id = s.branch_id
+                                JOIN groups g ON g.group_id = b.group_id
                 WHERE {' AND '.join(val_where)}
                   AND s.deleted_at IS NULL
+                                    AND g.deleted_at IS NULL
                   AND b.group_id = ${group_idx}
                 ORDER BY v.created_at DESC
                 LIMIT ${limit_idx};
@@ -752,6 +785,7 @@ async def get_branch_data_for_export(branch_id: int, from_time: datetime, to_tim
             FROM image_analysis ia
             JOIN cameras c ON c.camera_id = ia.camera_id
             WHERE c.branch_id = $1
+                            AND c.deleted_at IS NULL
               AND ia.created_at >= $2
               AND ia.created_at <= $3
             ORDER BY ia.created_at ASC;
@@ -822,6 +856,7 @@ async def get_latest_people_count_by_branch(branch_id: int):
             FROM image_analysis ia
             JOIN cameras c ON c.camera_id = ia.camera_id
             WHERE c.branch_id = $1
+                            AND c.deleted_at IS NULL
               AND c.status = 'online'
               AND ia.created_at >= NOW() - INTERVAL '11 minutes'
             ORDER BY ia.created_at DESC;
@@ -919,7 +954,10 @@ async def get_cameras(limit=100, group_id=None):
                 SELECT c.camera_id, c.branch_id, c.name, c.secret, c.activate, c.created_at, c.status
                 FROM cameras c
                 JOIN branches b ON b.branch_id = c.branch_id
+                                JOIN groups g ON g.group_id = b.group_id
                 WHERE b.group_id = $1
+                                    AND g.deleted_at IS NULL
+                                    AND c.deleted_at IS NULL
                 ORDER BY c.camera_id DESC
                 LIMIT $2;
                 """,
@@ -931,6 +969,7 @@ async def get_cameras(limit=100, group_id=None):
             """
             SELECT camera_id, branch_id, name, secret, activate, created_at, status
             FROM cameras
+            WHERE deleted_at IS NULL
             ORDER BY camera_id DESC
             LIMIT $1;
             """,
@@ -947,7 +986,7 @@ async def get_active_cameras():
             """
             SELECT camera_id, branch_id, name, secret, activate, created_at, status
             FROM cameras
-            WHERE activate = TRUE
+            WHERE activate = TRUE AND deleted_at IS NULL
             ORDER BY camera_id DESC;
             """
         )
@@ -964,7 +1003,8 @@ async def get_camera(camera_id, group_id=None):
                 SELECT c.camera_id, c.branch_id, c.name, c.secret, c.activate, c.created_at, c.status
                 FROM cameras c
                 JOIN branches b ON b.branch_id = c.branch_id
-                WHERE c.camera_id = $1 AND b.group_id = $2;
+                JOIN groups g ON g.group_id = b.group_id
+                WHERE c.camera_id = $1 AND b.group_id = $2 AND g.deleted_at IS NULL AND c.deleted_at IS NULL;
                 """,
                 camera_id,
                 group_id,
@@ -974,7 +1014,7 @@ async def get_camera(camera_id, group_id=None):
             """
             SELECT camera_id, branch_id, name, secret, activate, created_at, status
             FROM cameras
-            WHERE camera_id = $1;
+            WHERE camera_id = $1 AND deleted_at IS NULL;
             """,
             camera_id,
         )
@@ -1068,7 +1108,7 @@ async def verify_camera_stream(camera_id, secret):
             """
             UPDATE cameras
             SET status = 'online'
-            WHERE camera_id = $1 AND secret = $2
+            WHERE camera_id = $1 AND secret = $2 AND deleted_at IS NULL
             RETURNING camera_id, branch_id, name;
             """,
             camera_id,
@@ -1085,7 +1125,7 @@ async def end_camera_stream(camera_id, secret):
             """
             UPDATE cameras
             SET status = 'offline'
-            WHERE camera_id = $1 AND secret = $2
+            WHERE camera_id = $1 AND secret = $2 AND deleted_at IS NULL
             RETURNING camera_id, branch_id, name;
             """,
             camera_id,
@@ -1099,7 +1139,7 @@ async def end_camera_stream(camera_id, secret):
 async def reset_all_cameras_offline():
     """Reset all cameras to 'offline' on server startup."""
     try:
-        await _execute("UPDATE cameras SET status = 'offline';")
+        await _execute("UPDATE cameras SET status = 'offline' WHERE deleted_at IS NULL;")
         print("[STARTUP] All cameras reset to offline")
     except Exception as e:
         print(f"[STARTUP] Error resetting camera statuses: {e}")
@@ -1138,7 +1178,7 @@ async def update_camera(camera_id, name=None, branch_id=None, activate=None):
             SET branch_id = COALESCE($1, branch_id),
                 name = COALESCE($2, name),
                 activate = COALESCE($3, activate)
-            WHERE camera_id = $4
+            WHERE camera_id = $4 AND deleted_at IS NULL
             RETURNING camera_id, branch_id, name, secret, activate, created_at;
             """,
             branch_id,
@@ -1158,7 +1198,7 @@ async def reset_camera_secret(camera_id):
             """
             UPDATE cameras
             SET secret = $1
-            WHERE camera_id = $2
+            WHERE camera_id = $2 AND deleted_at IS NULL
             RETURNING camera_id, branch_id, name, secret, activate, created_at;
             """,
             new_secret,
@@ -1173,8 +1213,9 @@ async def delete_camera(camera_id):
     try:
         row = await _fetchrow(
             """
-            DELETE FROM cameras
-            WHERE camera_id = $1
+            UPDATE cameras
+            SET deleted_at = NOW(), status = 'offline'
+            WHERE camera_id = $1 AND deleted_at IS NULL
             RETURNING camera_id;
             """,
             camera_id,
@@ -1309,6 +1350,7 @@ async def get_groups():
             """
             SELECT group_id, name, created_at
             FROM groups
+            WHERE deleted_at IS NULL
             ORDER BY group_id DESC;
             """
         )
@@ -1323,7 +1365,7 @@ async def get_group(group_id):
             """
             SELECT group_id, name, created_at
             FROM groups
-            WHERE group_id = $1;
+            WHERE group_id = $1 AND deleted_at IS NULL;
             """,
             group_id,
         )
@@ -1338,7 +1380,7 @@ async def update_group(group_id, name):
             """
             UPDATE groups
             SET name = $1
-            WHERE group_id = $2
+            WHERE group_id = $2 AND deleted_at IS NULL
             RETURNING group_id, name, created_at;
             """,
             name,
@@ -1434,8 +1476,9 @@ async def delete_group(group_id):
     try:
         row = await _fetchrow(
             """
-            DELETE FROM groups
-            WHERE group_id = $1
+            UPDATE groups
+            SET deleted_at = NOW()
+            WHERE group_id = $1 AND deleted_at IS NULL
             RETURNING group_id;
             """,
             group_id,
