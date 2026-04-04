@@ -319,6 +319,12 @@ async def predict_branch(
         )
 
     people_rows = await get_latest_people_count_by_branch(branch_id)
+    if len(people_rows) < PREDICT_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not enough people data. Required {PREDICT_ROWS} rows, got {len(people_rows)}.",
+        )
+
     people = [
         {
             "value": row["people_count"],
